@@ -200,12 +200,24 @@ def send_email(
             _log_send(email_data, "error", "SMTP credentials not configured")
             return {"status": "error", "reason": "SMTP credentials not configured in .env"}
 
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as server:
-            server.ehlo()
-            server.starttls()
-            server.ehlo()
-            server.login(SMTP_USERNAME, SMTP_PASSWORD)
-            server.sendmail(SENDER_EMAIL, [to_email], msg.as_string())
+        if SMTP_PORT == 465:
+            # SSL connection (GoDaddy / secureserver.net)
+            import ssl
+            context = ssl.create_default_context()
+            # GoDaddy uses self-signed certs in chain — relax verification
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+            with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=context, timeout=30) as server:
+                server.login(SMTP_USERNAME, SMTP_PASSWORD)
+                server.sendmail(SENDER_EMAIL, [to_email], msg.as_string())
+        else:
+            # STARTTLS connection (Gmail, etc.)
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as server:
+                server.ehlo()
+                server.starttls()
+                server.ehlo()
+                server.login(SMTP_USERNAME, SMTP_PASSWORD)
+                server.sendmail(SENDER_EMAIL, [to_email], msg.as_string())
 
         _log_send(email_data, "sent")
         return {

@@ -2,17 +2,20 @@
 Bassi Clothing — AI Marketing Dashboard
 =========================================
 FastAPI-powered web dashboard for managing leads, campaigns, content, and pipeline.
+Now with Apollo search, email upload, Gemini-powered bulk email generation, and sending.
 """
 
 import sys
 import json
+import csv
+import io
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
 
-from fastapi import FastAPI, Request, Query
+from fastapi import FastAPI, Request, Query, UploadFile, File, Form
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from dotenv import load_dotenv
 
 # Add parent to path
@@ -24,13 +27,29 @@ load_dotenv(BASE_DIR / ".env")
 app = FastAPI(
     title="Bassi Clothing — AI Marketing Dashboard",
     description="B2B Outbound Engine, Sales Pipeline, and Content Ops",
-    version="1.0.0",
+    version="2.0.0",
 )
 
 # Serve static files
 STATIC_DIR = Path(__file__).parent / "static"
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+# Generated emails storage
+GENERATED_EMAILS_FILE = BASE_DIR / "output" / "generated_emails.json"
+
+
+def _load_generated_emails():
+    if GENERATED_EMAILS_FILE.exists():
+        with open(GENERATED_EMAILS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return []
+
+
+def _save_generated_emails(emails):
+    GENERATED_EMAILS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(GENERATED_EMAILS_FILE, "w", encoding="utf-8") as f:
+        json.dump(emails, f, indent=2, ensure_ascii=False, default=str)
 
 
 # ─── Root: Serve Dashboard ───────────────────────────────────
@@ -77,8 +96,7 @@ async def api_import_leads(request: Request):
     body = await request.json()
     csv_path = body.get("csv_path", "")
     if not csv_path:
-        # Default to Apollo CSV
-        csv_path = str(BASE_DIR.parent / "Appolo_Scraper" / "files" / "UK_Europe_Lead_List_FILLED.csv")
+        csv_path = str(BASE_DIR / "UK_Europe_Lead_List_FILLED.csv")
     from outbound_engine.lead_manager import import_from_csv
     result = import_from_csv(csv_path)
     return result
@@ -107,7 +125,170 @@ async def api_pipeline_stats():
 
 
 # ═══════════════════════════════════════════════════════════════
-#  EMAIL GENERATION API
+#  APOLLO SEARCH API
+# ═══════════════════════════════════════════════════════════════
+
+@app.post("/api/apollo/search")
+async def api_apollo_search(request: Request):
+    """Search Apollo for leads matching ICP from bassi_config.yaml."""
+    body = await request.json()
+    page = body.get("page", 1)
+    per_page = body.get("per_page", 100)
+
+    from outbound_engine.apollo_search import search_apollo_leads, export_leads_to_excel
+
+    result = search_apollo_leads(page=page, per_page=per_page)
+
+    if result.get("error"):
+        return JSONResponse(status_code=400, content=result)
+
+    # Export to Excel
+    leads = result.get("leads", [])
+    if leads:
+        excel_path = export_leads_to_excel(leads)
+        result["excel_path"] = excel_path
+
+    return result
+
+
+@app.get("/api/apollo/download")
+async def api_apollo_download():
+    """Download the latest Apollo export as Excel."""
+    from outbound_engine.apollo_search import get_latest_export
+
+    filepath = get_latest_export()
+    if filepath and Path(filepath).exists():
+        return FileResponse(
+            filepath,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            filename=Path(filepath).name,
+        )
+    return JSONResponse(status_code=404, content={"error": "No export file found. Run Apollo search first."})
+
+
+# ═══════════════════════════════════════════════════════════════
+#  EMAIL UPLOAD API (User uploads scraped emails)
+# ═══════════════════════════════════════════════════════════════
+
+@app.post("/api/leads/upload-emails")
+async def api_upload_emails(file: UploadFile = File(...)):
+    """
+    Accept CSV/Excel upload with email addresses.
+    Expected columns: Company Name, Email (minimum).
+    Merges emails into existing leads in leads.json.
+    """
+    from outbound_engine.lead_manager import get_all_leads, _save_leads
+
+    content = await file.read()
+    filename = file.filename or "upload.csv"
+
+    leads = get_all_leads()
+    company_map = {l["company_name"].lower(): l for l in leads}
+
+    updated_count = 0
+    new_count = 0
+    errors = []
+
+    try:
+        if filename.endswith(".xlsx") or filename.endswith(".xls"):
+            import pandas as pd
+            df = pd.read_excel(io.BytesIO(content), engine="openpyxl")
+            rows = df.to_dict("records")
+        else:
+            # CSV
+            text = content.decode("utf-8-sig")
+            reader = csv.DictReader(io.StringIO(text))
+            rows = list(reader)
+
+        for row in rows:
+            company_name = (row.get("Company Name") or row.get("company_name") or "").strip()
+            email = (row.get("Email") or row.get("email") or "").strip()
+            person = (row.get("Person") or row.get("person") or row.get("Name") or row.get("name") or "").strip()
+            title = (row.get("Primary_Designation") or row.get("Title") or row.get("title") or "").strip()
+
+            if not company_name:
+                continue
+
+            if company_name.lower() in company_map:
+                lead = company_map[company_name.lower()]
+                # Update or add contact with email
+                if email:
+                    contact_updated = False
+                    for contact in lead.get("contacts", []):
+                        if not contact.get("email"):
+                            contact["email"] = email
+                            if person and not contact.get("name"):
+                                contact["name"] = person
+                            if title and not contact.get("title"):
+                                contact["title"] = title
+                            contact_updated = True
+                            break
+                    if not contact_updated:
+                        lead.setdefault("contacts", []).append({
+                            "name": person,
+                            "email": email,
+                            "title": title,
+                            "phone": "",
+                            "linkedin": "",
+                            "is_primary": len(lead.get("contacts", [])) == 0,
+                        })
+                    lead["updated_at"] = datetime.now().isoformat()
+                    updated_count += 1
+            else:
+                # New lead from upload
+                import uuid
+                new_lead = {
+                    "id": str(uuid.uuid4())[:8],
+                    "company_name": company_name,
+                    "website": (row.get("Website") or row.get("website") or "").strip(),
+                    "about": (row.get("About") or row.get("about") or "").strip(),
+                    "country": (row.get("Country") or row.get("country") or "").strip(),
+                    "industry": (row.get("Industry") or row.get("industry") or "").strip(),
+                    "employees": (row.get("Employees") or row.get("employees") or "").strip(),
+                    "revenue": (row.get("Revenue") or row.get("revenue") or "").strip(),
+                    "founded": (row.get("Founded") or row.get("founded") or "").strip(),
+                    "company_phone": (row.get("Company_Phone") or "").strip(),
+                    "company_linkedin": (row.get("Company_LinkedIn") or "").strip(),
+                    "contacts": [],
+                    "stage": "new",
+                    "score": 0,
+                    "tags": [],
+                    "notes": [],
+                    "campaigns": [],
+                    "created_at": datetime.now().isoformat(),
+                    "updated_at": datetime.now().isoformat(),
+                }
+                if email:
+                    new_lead["contacts"].append({
+                        "name": person,
+                        "email": email,
+                        "title": title,
+                        "phone": "",
+                        "linkedin": "",
+                        "is_primary": True,
+                    })
+                leads.append(new_lead)
+                company_map[company_name.lower()] = new_lead
+                new_count += 1
+
+        _save_leads(leads)
+
+    except Exception as e:
+        return JSONResponse(status_code=400, content={
+            "error": f"Failed to process file: {str(e)}",
+        })
+
+    return {
+        "success": True,
+        "updated": updated_count,
+        "new": new_count,
+        "total_leads": len(leads),
+        "message": f"Updated {updated_count} existing leads, added {new_count} new leads",
+    }
+
+
+# ═══════════════════════════════════════════════════════════════
+#  EMAIL GENERATION API (Gemini Pro)
 # ═══════════════════════════════════════════════════════════════
 
 @app.post("/api/emails/generate")
@@ -150,6 +331,54 @@ async def api_generate_batch(request: Request):
     return {"emails": emails, "count": len(emails)}
 
 
+@app.post("/api/emails/generate-all")
+async def api_generate_all_emails(request: Request):
+    """Generate personalized emails for all leads that have email addresses."""
+    body = await request.json()
+    email_type = body.get("email_type", "cold_outreach")
+
+    from outbound_engine.lead_manager import get_all_leads
+    from outbound_engine.email_generator import generate_email, score_email
+
+    all_leads = get_all_leads()
+    leads_with_email = [
+        l for l in all_leads
+        if any(c.get("email") for c in l.get("contacts", []))
+    ]
+
+    if not leads_with_email:
+        return {"error": "No leads with email addresses found. Upload emails first.", "emails": [], "count": 0}
+
+    emails = []
+    for lead in leads_with_email:
+        contact = next((c for c in lead.get("contacts", []) if c.get("email")), None)
+        if not contact:
+            continue
+
+        email = generate_email(lead, email_type)
+        email["lead_id"] = lead.get("id", "")
+        email["to_email"] = contact["email"]
+        email["to_name"] = contact.get("name", "")
+        email["quality_score"] = score_email(email)
+        emails.append(email)
+
+    # Save generated emails
+    _save_generated_emails(emails)
+
+    return {
+        "emails": emails,
+        "count": len(emails),
+        "message": f"Generated {len(emails)} personalized emails using Gemini Pro",
+    }
+
+
+@app.get("/api/emails/generated")
+async def api_get_generated_emails():
+    """Get all previously generated emails."""
+    emails = _load_generated_emails()
+    return {"emails": emails, "count": len(emails)}
+
+
 @app.post("/api/emails/send")
 async def api_send_campaign(request: Request):
     body = await request.json()
@@ -159,6 +388,54 @@ async def api_send_campaign(request: Request):
     from outbound_engine.email_sender import send_campaign
     result = send_campaign(emails, schedule)
     return result
+
+
+@app.post("/api/emails/send-all")
+async def api_send_all_emails(request: Request):
+    """Send all previously generated emails."""
+    from outbound_engine.email_sender import send_email, DRY_RUN, MAX_EMAILS_PER_DAY
+
+    emails = _load_generated_emails()
+    if not emails:
+        return {"error": "No generated emails to send. Generate emails first.", "results": []}
+
+    results = {"sent": 0, "dry_run": 0, "skipped": 0, "errors": 0, "details": []}
+
+    for i, email_data in enumerate(emails):
+        to_email = email_data.get("to_email", "")
+        to_name = email_data.get("to_name", email_data.get("contact_name", ""))
+        subject = email_data.get("subject", "")
+        body = email_data.get("body", "")
+
+        if not to_email:
+            results["skipped"] += 1
+            results["details"].append({
+                "company": email_data.get("company_name", "Unknown"),
+                "status": "skipped",
+                "reason": "No email address",
+            })
+            continue
+
+        result = send_email(
+            to_email=to_email,
+            to_name=to_name,
+            subject=subject,
+            body=body,
+            email_data=email_data,
+        )
+
+        status = result.get("status", "error")
+        results[status] = results.get(status, 0) + 1
+        results["details"].append({
+            "company": email_data.get("company_name", "Unknown"),
+            "email": to_email,
+            **result,
+        })
+
+    results["dry_run_mode"] = DRY_RUN
+    results["total_processed"] = len(emails)
+
+    return results
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -341,11 +618,15 @@ async def api_cold_deals():
 
 @app.get("/api/health")
 async def health():
+    import os
     return {
         "status": "healthy",
         "service": "Bassi Clothing AI Marketing Dashboard",
-        "version": "1.0.0",
+        "version": "2.0.0",
         "timestamp": datetime.now().isoformat(),
+        "llm": "Gemini Pro" if os.environ.get("GEMINI_API_KEY") else "Template (no API key)",
+        "apollo": "Connected" if os.environ.get("APOLLO_API_KEY") else "Not configured",
+        "dry_run": os.environ.get("DRY_RUN", "true"),
     }
 
 
@@ -355,7 +636,7 @@ if __name__ == "__main__":
     import os
     host = os.environ.get("DASHBOARD_HOST", "127.0.0.1")
     port = int(os.environ.get("DASHBOARD_PORT", "8000"))
-    print(f"\n🚀 Bassi Clothing AI Marketing Dashboard")
+    print(f"\n🚀 Bassi Clothing AI Marketing Dashboard v2.0")
     print(f"   http://{host}:{port}")
     print(f"   API docs: http://{host}:{port}/docs\n")
     uvicorn.run(app, host=host, port=port)

@@ -1,16 +1,19 @@
 /* ═══════════════════════════════════════════════════════════════
-   Bassi Clothing — AI Marketing Dashboard JS
+   Bassi Clothing — AI Marketing Dashboard JS v2.0
+   Gemini Pro + Apollo Integration
    ═══════════════════════════════════════════════════════════════ */
 
 const API = '';  // Same origin
 
 // ─── State ───
 let allLeads = [];
+let generatedEmails = [];
 let currentPage = 'dashboard';
 
 // ─── Init ───
 document.addEventListener('DOMContentLoaded', () => {
   loadDashboard();
+  setupUploadDropzone();
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -35,7 +38,10 @@ function showPage(page) {
   // Load page data
   switch (page) {
     case 'dashboard': loadDashboard(); break;
+    case 'apollo-search': /* static page */ break;
+    case 'upload-emails': /* static page */ break;
     case 'leads': loadLeads(); break;
+    case 'bulk-email': loadBulkEmail(); break;
     case 'email-gen': loadEmailGenOptions(); break;
     case 'campaigns': loadCampaigns(); break;
     case 'pipeline': loadPipeline(); break;
@@ -120,6 +126,416 @@ async function loadDashboard() {
 }
 
 // ═══════════════════════════════════════════════════════════════
+//  APOLLO SEARCH
+// ═══════════════════════════════════════════════════════════════
+
+async function triggerApolloSearch() {
+  const btn = document.getElementById('btn-apollo-search');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="loading-spinner"></span> Searching Apollo...';
+
+  showToast('🔍 Searching Apollo with your ICP filters...', 'info');
+
+  try {
+    const res = await fetch(`${API}/api/apollo/search`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ page: 1, per_page: 100 }),
+    });
+    const data = await res.json();
+
+    if (data.error) {
+      showToast(`❌ ${data.error}`, 'error');
+      btn.disabled = false;
+      btn.innerHTML = '🔍 Search Apollo';
+      return;
+    }
+
+    const leads = data.leads || [];
+    const resultsDiv = document.getElementById('apollo-results');
+    resultsDiv.style.display = 'block';
+
+    // Stats
+    document.getElementById('apollo-stats').innerHTML = `
+      <div class="stat-card">
+        <div class="stat-icon">🏢</div>
+        <div class="stat-value">${leads.length}</div>
+        <div class="stat-label">Companies Found</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">🌍</div>
+        <div class="stat-value">${data.total || 0}</div>
+        <div class="stat-label">Total Matches</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">📧</div>
+        <div class="stat-value">0</div>
+        <div class="stat-label">Emails (scrape from Apollo)</div>
+      </div>
+    `;
+
+    document.getElementById('apollo-results-count').textContent = `${leads.length} leads`;
+
+    // Table
+    const tbody = document.getElementById('apollo-table-body');
+    tbody.innerHTML = leads.map(l => `
+      <tr>
+        <td>
+          <div style="font-weight:600;color:var(--text-heading);">${escHtml(l.company_name)}</div>
+          ${l.website ? `<div style="font-size:0.72rem;color:var(--text-muted);">${escHtml(l.website)}</div>` : ''}
+        </td>
+        <td>${escHtml(l.person || '-')}</td>
+        <td>${escHtml(l.primary_designation || '-')}</td>
+        <td>${getFlag(l.country)} ${escHtml(l.country || 'N/A')}</td>
+        <td>${escHtml(l.industry || '-')}</td>
+        <td>${l.employees || '-'}</td>
+      </tr>
+    `).join('');
+
+    // Show download button
+    document.getElementById('btn-apollo-download').style.display = 'inline-flex';
+
+    showToast(`✅ Found ${leads.length} leads! Excel ready for download.`, 'success');
+
+  } catch (e) {
+    showToast('❌ Apollo search failed: ' + e.message, 'error');
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = '🔍 Search Apollo';
+}
+
+function downloadApolloExcel() {
+  window.open(`${API}/api/apollo/download`, '_blank');
+  showToast('📥 Downloading Excel...', 'info');
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  UPLOAD EMAILS
+// ═══════════════════════════════════════════════════════════════
+
+let selectedFile = null;
+
+function setupUploadDropzone() {
+  const dropzone = document.getElementById('upload-dropzone');
+  if (!dropzone) return;
+
+  dropzone.addEventListener('click', () => {
+    document.getElementById('email-file-input').click();
+  });
+
+  dropzone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropzone.classList.add('dragover');
+  });
+
+  dropzone.addEventListener('dragleave', () => {
+    dropzone.classList.remove('dragover');
+  });
+
+  dropzone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropzone.classList.remove('dragover');
+    const files = e.dataTransfer.files;
+    if (files.length) {
+      selectedFile = files[0];
+      showSelectedFile(selectedFile);
+    }
+  });
+}
+
+function handleFileSelect(event) {
+  const files = event.target.files;
+  if (files.length) {
+    selectedFile = files[0];
+    showSelectedFile(selectedFile);
+  }
+}
+
+function showSelectedFile(file) {
+  document.getElementById('upload-file-info').style.display = 'block';
+  document.getElementById('upload-file-name').textContent = `📄 Selected: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+  document.getElementById('btn-upload').style.display = 'inline-flex';
+
+  const dropzone = document.getElementById('upload-dropzone');
+  dropzone.innerHTML = `
+    <div class="upload-icon">✅</div>
+    <h3>${escHtml(file.name)}</h3>
+    <p>${(file.size / 1024).toFixed(1)} KB — Click "Upload & Merge" below</p>
+  `;
+}
+
+async function uploadEmails() {
+  if (!selectedFile) {
+    showToast('⚠️ Select a file first', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('btn-upload');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="loading-spinner"></span> Uploading...';
+
+  const formData = new FormData();
+  formData.append('file', selectedFile);
+
+  try {
+    const res = await fetch(`${API}/api/leads/upload-emails`, {
+      method: 'POST',
+      body: formData,
+    });
+    const data = await res.json();
+
+    if (data.error) {
+      showToast(`❌ ${data.error}`, 'error');
+    } else {
+      showToast(`✅ ${data.message}`, 'success');
+
+      const resultsDiv = document.getElementById('upload-results');
+      resultsDiv.style.display = 'block';
+      document.getElementById('upload-results-content').innerHTML = `
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-icon">🔄</div>
+            <div class="stat-value">${data.updated}</div>
+            <div class="stat-label">Existing Leads Updated</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">➕</div>
+            <div class="stat-value">${data.new}</div>
+            <div class="stat-label">New Leads Added</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">👥</div>
+            <div class="stat-value">${data.total_leads}</div>
+            <div class="stat-label">Total Leads</div>
+          </div>
+        </div>
+        <p style="color:var(--accent-emerald);margin-top:12px;">✅ Emails merged successfully! Go to <a href="#" onclick="showPage('bulk-email')" style="color:var(--accent-blue);text-decoration:underline;">Bulk Email</a> to generate & send.</p>
+      `;
+
+      // Refresh dashboard
+      loadDashboard();
+    }
+  } catch (e) {
+    showToast('❌ Upload failed: ' + e.message, 'error');
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = '📤 Upload & Merge Emails';
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  BULK EMAIL (Generate + Send All)
+// ═══════════════════════════════════════════════════════════════
+
+async function loadBulkEmail() {
+  // Load previously generated emails
+  try {
+    const res = await fetch(`${API}/api/emails/generated`);
+    const data = await res.json();
+    generatedEmails = data.emails || [];
+
+    if (generatedEmails.length > 0) {
+      renderBulkEmails(generatedEmails);
+      document.getElementById('btn-send-all').style.display = 'inline-flex';
+    }
+  } catch (e) {
+    console.error('Load bulk email error:', e);
+  }
+}
+
+async function generateAllEmails() {
+  const emailType = document.getElementById('bulk-email-type').value;
+  const btn = document.getElementById('btn-generate-all');
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="loading-spinner"></span> Generating with Gemini Pro...';
+
+  // Show progress
+  const progress = document.getElementById('bulk-progress');
+  progress.style.display = 'block';
+  document.getElementById('bulk-progress-text').textContent = 'Generating personalized emails with Gemini Pro...';
+  document.getElementById('bulk-progress-bar').style.width = '30%';
+
+  try {
+    const res = await fetch(`${API}/api/emails/generate-all`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email_type: emailType }),
+    });
+
+    document.getElementById('bulk-progress-bar').style.width = '90%';
+
+    const data = await res.json();
+
+    if (data.error) {
+      showToast(`❌ ${data.error}`, 'error');
+      progress.style.display = 'none';
+      btn.disabled = false;
+      btn.innerHTML = '✨ Generate All Emails (Gemini Pro)';
+      return;
+    }
+
+    generatedEmails = data.emails || [];
+    document.getElementById('bulk-progress-bar').style.width = '100%';
+
+    setTimeout(() => {
+      progress.style.display = 'none';
+      renderBulkEmails(generatedEmails);
+      document.getElementById('btn-send-all').style.display = 'inline-flex';
+      showToast(`✅ ${data.message || `Generated ${generatedEmails.length} emails!`}`, 'success');
+    }, 500);
+
+  } catch (e) {
+    showToast('❌ Generation failed: ' + e.message, 'error');
+    progress.style.display = 'none';
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = '✨ Generate All Emails (Gemini Pro)';
+}
+
+function renderBulkEmails(emails) {
+  const container = document.getElementById('bulk-email-list');
+
+  if (!emails.length) {
+    container.innerHTML = `<div class="empty-state">
+      <div class="empty-icon">✉️</div>
+      <h3>No emails generated yet</h3>
+      <p>Click "Generate All Emails" to create personalized emails for all leads with email addresses</p>
+    </div>`;
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">📧 Generated Emails (${emails.length})</div>
+        <span class="badge badge-replied">${emails.filter(e => e.ai_generated).length} AI-generated</span>
+      </div>
+      <div class="bulk-email-grid">
+        ${emails.map((email, i) => {
+          const quality = email.quality_score || {};
+          const scoreColor = (quality.overall || 0) >= 80 ? 'var(--accent-emerald)' :
+                             (quality.overall || 0) >= 60 ? 'var(--accent-amber)' : 'var(--accent-rose)';
+          return `
+            <div class="bulk-email-card">
+              <div class="bulk-email-header">
+                <div>
+                  <div class="bulk-email-company">${escHtml(email.company_name || 'Unknown')}</div>
+                  <div class="bulk-email-to">${escHtml(email.to_email || email.contact_name || 'No email')}</div>
+                </div>
+                <span class="badge" style="background:${scoreColor}20;color:${scoreColor};">${quality.overall || '-'}</span>
+              </div>
+              <div class="bulk-email-subject">📧 ${escHtml(email.subject || '')}</div>
+              <div class="bulk-email-body">${escHtml((email.body || '').substring(0, 150))}...</div>
+              <div class="bulk-email-meta">
+                ${email.ai_generated ? '🤖 Gemini Pro' : '📝 Template'} • ${email.model || 'N/A'}
+              </div>
+            </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+}
+
+function confirmSendAllEmails() {
+  const modal = document.getElementById('modal-content');
+  modal.innerHTML = `
+    <div class="modal-header">
+      <h3>📨 Confirm Send All Emails</h3>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <div style="color:var(--text-secondary);margin-bottom:16px;">
+      <p>You're about to send <strong>${generatedEmails.length} personalized emails</strong> from <strong>vaibhav@bassiclothing.in</strong>.</p>
+      <div class="mt-2" style="padding:12px;background:rgba(245,158,11,0.1);border-radius:8px;">
+        <p style="color:var(--accent-amber);">⚠️ <strong>Note:</strong> Emails will be sent with rate limiting (${generatedEmails.length > 30 ? 'max 30/day' : 'all at once'}). DRY_RUN mode will log but not actually send.</p>
+      </div>
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-success" onclick="sendAllEmails()">✅ Yes, Send All</button>
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+    </div>
+  `;
+  document.getElementById('modal-overlay').classList.add('active');
+}
+
+async function sendAllEmails() {
+  closeModal();
+
+  const btn = document.getElementById('btn-send-all');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="loading-spinner"></span> Sending...';
+
+  showToast('📨 Sending emails...', 'info');
+
+  try {
+    const res = await fetch(`${API}/api/emails/send-all`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    const data = await res.json();
+
+    if (data.error) {
+      showToast(`❌ ${data.error}`, 'error');
+    } else {
+      const resultsDiv = document.getElementById('send-results');
+      resultsDiv.style.display = 'block';
+
+      const isDryRun = data.dry_run_mode;
+      document.getElementById('send-results-content').innerHTML = `
+        ${isDryRun ? '<div style="padding:12px;background:rgba(245,158,11,0.1);border-radius:8px;margin-bottom:16px;"><p style="color:var(--accent-amber);font-size:0.85rem;">🔍 <strong>DRY RUN MODE</strong> — Emails were logged but not actually sent. Set DRY_RUN=false in .env to send for real.</p></div>' : ''}
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-icon">${isDryRun ? '🔍' : '✅'}</div>
+            <div class="stat-value">${isDryRun ? (data.dry_run || 0) : (data.sent || 0)}</div>
+            <div class="stat-label">${isDryRun ? 'Dry Run' : 'Sent'}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">⏭️</div>
+            <div class="stat-value">${data.skipped || 0}</div>
+            <div class="stat-label">Skipped</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">❌</div>
+            <div class="stat-value">${data.errors || 0}</div>
+            <div class="stat-label">Errors</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">📊</div>
+            <div class="stat-value">${data.total_processed || 0}</div>
+            <div class="stat-label">Total Processed</div>
+          </div>
+        </div>
+        ${(data.details || []).length > 0 ? `
+        <div class="table-container mt-2">
+          <table>
+            <thead><tr><th>Company</th><th>Email</th><th>Status</th><th>Message</th></tr></thead>
+            <tbody>
+              ${(data.details || []).map(d => `
+                <tr>
+                  <td style="font-weight:600;">${escHtml(d.company || '')}</td>
+                  <td>${escHtml(d.email || '-')}</td>
+                  <td><span class="badge badge-${d.status === 'sent' || d.status === 'dry_run' ? 'replied' : d.status === 'skipped' ? 'contacted' : 'lost'}">${d.status}</span></td>
+                  <td style="font-size:0.8rem;color:var(--text-muted);">${escHtml(d.message || d.reason || '')}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>` : ''}
+      `;
+
+      showToast(`✅ Processed ${data.total_processed || 0} emails!`, 'success');
+    }
+  } catch (e) {
+    showToast('❌ Send failed: ' + e.message, 'error');
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = '📨 Send All Emails';
+}
+
+// ═══════════════════════════════════════════════════════════════
 //  LEADS
 // ═══════════════════════════════════════════════════════════════
 
@@ -188,7 +604,7 @@ async function filterLeads() {
 }
 
 async function importLeads() {
-  showToast('📥 Importing leads from Apollo CSV...', 'info');
+  showToast('📥 Importing leads from CSV...', 'info');
   try {
     const res = await fetch(`${API}/api/leads/import`, {
       method: 'POST',
@@ -287,7 +703,7 @@ async function updateLeadStage(leadId, stage) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  EMAIL GENERATOR
+//  SINGLE EMAIL GENERATOR
 // ═══════════════════════════════════════════════════════════════
 
 async function loadEmailGenOptions() {
@@ -356,9 +772,8 @@ async function generateEmail() {
         <div class="email-body">${escHtml(email.body)}</div>
       </div>
       <div class="mt-2" style="font-size:0.8rem;color:var(--text-muted);">
-        ${email.ai_generated ? '🤖 AI Generated' : '📝 Template Based'} •
-        ${email.model || 'N/A'} •
-        ${email.tokens_used ? email.tokens_used + ' tokens' : ''}
+        ${email.ai_generated ? '🤖 Gemini Pro' : '📝 Template Based'} •
+        ${email.model || 'N/A'}
       </div>
       <div class="mt-2">
         <h4 style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:8px;">Quality Breakdown</h4>
@@ -697,6 +1112,7 @@ function getFlag(country) {
     'Netherlands': '🇳🇱', 'Sweden': '🇸🇪', 'Denmark': '🇩🇰',
     'Italy': '🇮🇹', 'Spain': '🇪🇸', 'Belgium': '🇧🇪', 'Ireland': '🇮🇪',
     'Portugal': '🇵🇹', 'Norway': '🇳🇴', 'Finland': '🇫🇮', 'Austria': '🇦🇹',
+    'Hungary': '🇭🇺', 'Poland': '🇵🇱', 'Australia': '🇦🇺',
   };
   return flags[country] || '🌍';
 }

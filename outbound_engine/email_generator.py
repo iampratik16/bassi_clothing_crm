@@ -1,7 +1,7 @@
 """
-Bassi Clothing — AI Email Generator
-====================================
-Generate personalized B2B cold emails using OpenAI.
+Bassi Clothing — AI Email Generator (Gemini Pro)
+==================================================
+Generate personalized B2B cold emails using Google Gemini Pro.
 Supports multiple email types: cold outreach, follow-ups, case study shares, breakup emails.
 """
 
@@ -19,12 +19,17 @@ CASE_STUDIES_FILE = BASE_DIR / "data" / "case_studies.json"
 PRODUCTS_FILE = BASE_DIR / "data" / "products.json"
 OUTPUT_DIR = BASE_DIR / "output" / "emails"
 
-# Try to import OpenAI
+# Load environment
+from dotenv import load_dotenv
+load_dotenv(BASE_DIR / ".env")
+
+
+# Try to import Google GenAI
 try:
-    from openai import OpenAI
-    HAS_OPENAI = True
+    from google import genai
+    HAS_GEMINI = True
 except ImportError:
-    HAS_OPENAI = False
+    HAS_GEMINI = False
 
 
 def _load_config() -> Dict:
@@ -47,13 +52,18 @@ def _load_products() -> List[Dict]:
     return []
 
 
-def _get_openai_client() -> Optional[object]:
-    if not HAS_OPENAI:
+def _get_gemini_client() -> Optional[object]:
+    """Initialize Google Gemini client."""
+    if not HAS_GEMINI:
         return None
-    api_key = os.environ.get("OPENAI_API_KEY", "")
-    if not api_key or api_key.startswith("sk-your"):
+    api_key = os.environ.get("GEMINI_API_KEY", "")
+    if not api_key or api_key.startswith("your"):
         return None
-    return OpenAI(api_key=api_key)
+    try:
+        client = genai.Client(api_key=api_key)
+        return client
+    except Exception:
+        return None
 
 
 def _get_season() -> str:
@@ -195,8 +205,8 @@ def generate_email(
     custom_prompt: str = "",
 ) -> Dict:
     """
-    Generate a personalized email for a lead using AI.
-    Falls back to template-based generation if OpenAI is unavailable.
+    Generate a personalized email for a lead using Gemini Pro.
+    Falls back to template-based generation if Gemini is unavailable.
     """
     config = _load_config()
     contact = {}
@@ -213,17 +223,17 @@ def generate_email(
         "season": _get_season(),
     }
 
-    client = _get_openai_client()
+    client = _get_gemini_client()
     if client:
-        return _generate_with_ai(client, config, context, email_type, custom_prompt)
+        return _generate_with_gemini(client, config, context, email_type, custom_prompt)
     else:
         return _generate_from_template(config, context, email_type)
 
 
-def _generate_with_ai(
+def _generate_with_gemini(
     client, config: Dict, context: Dict, email_type: str, custom_prompt: str
 ) -> Dict:
-    """Generate email using OpenAI."""
+    """Generate email using Google Gemini Pro."""
     system_prompt = _build_system_prompt(config)
 
     if custom_prompt:
@@ -233,22 +243,75 @@ def _generate_with_ai(
     else:
         user_prompt = EMAIL_TYPE_PROMPTS["cold_outreach"].format(**context)
 
-    model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+    model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 
     try:
-        response = client.chat.completions.create(
+        # Build the full prompt with system instructions + user request
+        full_prompt = f"""{system_prompt}
+
+---
+
+{user_prompt}
+
+IMPORTANT: You MUST respond with ONLY a valid JSON object. No markdown, no code fences, no extra text.
+Use escaped newlines (\\n) inside string values. Example format:
+{{"subject": "Subject line here", "body": "Line 1\\n\\nLine 2\\n\\nLine 3"}}"""
+
+        response = client.models.generate_content(
             model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=0.7,
-            max_tokens=800,
-            response_format={"type": "json_object"},
+            contents=full_prompt,
+            config={
+                "temperature": 0.7,
+                "max_output_tokens": 1200,
+            },
         )
 
-        content = response.choices[0].message.content
-        result = json.loads(content)
+        content = response.text.strip()
+
+        # Clean up response — remove markdown code fences if present
+        if content.startswith("```"):
+            content = re.sub(r'^```(?:json)?\s*', '', content)
+            content = re.sub(r'\s*```$', '', content)
+
+        # Try parsing with fixes for common AI JSON mistakes
+        def try_parse(text):
+            text = text.replace("\\'", "'")
+            try:
+                return json.loads(text)
+            except Exception as e:
+                # If it's truncated, try appending closing braces/quotes
+                if "Unterminated string" in str(e) or "Expecting ',' delimiter" in str(e) or "Expecting property name" in str(e):
+                    for suffix in ['"}', '"}', '}']:
+                        try:
+                            return json.loads(text + suffix)
+                        except:
+                            pass
+                
+                # Try replacing raw newlines with \\n
+                text_no_nl = text.replace("\n", "\\n")
+                try:
+                    return json.loads(text_no_nl)
+                except:
+                    pass
+                
+                raise e
+
+        try:
+            result = try_parse(content)
+        except Exception:
+            # Absolute last resort: regex
+            subj_match = re.search(r'"subject"\s*:\s*"([^"]*)"', content, re.DOTALL)
+            body_match = re.search(r'"body"\s*:\s*"([\s\S]*?)("?\s*\}|$)', content, re.DOTALL)
+            
+            if subj_match:
+                body_text = body_match.group(1).strip() if body_match else ""
+                body_text = body_text.replace('\\n', '\n').replace('\\"', '"')
+                result = {"subject": subj_match.group(1).strip(), "body": body_text}
+            else:
+                result = None
+
+        if not result:
+            raise ValueError(f"Could not parse Gemini response as JSON: {content[:300]}")
 
         return {
             "subject": result.get("subject", ""),
@@ -259,7 +322,7 @@ def _generate_with_ai(
             "company_name": context["company_name"],
             "contact_name": context["contact_name"],
             "ai_generated": True,
-            "tokens_used": response.usage.total_tokens if response.usage else 0,
+            "tokens_used": 0,
         }
     except Exception as e:
         return {

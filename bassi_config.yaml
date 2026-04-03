@@ -30,7 +30,7 @@ ideal_customer_profile:
     - "Denmark"
     - "Belgium"
     - "Ireland"
-
+#Add all the Euro Country
   decision_makers:
     - "Head of Sourcing"
     - "Procurement Director"
@@ -41,9 +41,9 @@ ideal_customer_profile:
     - "Managing Director"
     - "Operations Director"
     - "Head of Operations"
-
+#Head of Design
   company_size:
-    min_employees: 50
+    min_employees: 50 #Make it 1 
     max_employees: 10000
 
   scoring_weights:

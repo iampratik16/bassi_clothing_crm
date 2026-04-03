@@ -14,7 +14,7 @@
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-logo">
       <h1>🧵 Bassi Clothing</h1>
-      <p>AI Marketing Hub</p>
+      <p>AI Marketing Hub v2.0</p>
     </div>
     <nav class="sidebar-nav">
       <div class="nav-section">
@@ -25,16 +25,29 @@
       </div>
 
       <div class="nav-section">
+        <div class="nav-section-title">Lead Discovery</div>
+        <a class="nav-item" data-page="apollo-search" onclick="showPage('apollo-search')">
+          <span class="icon">🔍</span><span>Apollo Search</span>
+        </a>
+        <a class="nav-item" data-page="upload-emails" onclick="showPage('upload-emails')">
+          <span class="icon">📤</span><span>Upload Emails</span>
+        </a>
+      </div>
+
+      <div class="nav-section">
         <div class="nav-section-title">Outbound Engine</div>
         <a class="nav-item" data-page="leads" onclick="showPage('leads')">
           <span class="icon">👥</span><span>Leads</span>
           <span class="badge" id="leads-count-badge">0</span>
         </a>
-        <a class="nav-item" data-page="campaigns" onclick="showPage('campaigns')">
-          <span class="icon">📧</span><span>Campaigns</span>
+        <a class="nav-item" data-page="bulk-email" onclick="showPage('bulk-email')">
+          <span class="icon">✉️</span><span>Bulk Email</span>
         </a>
         <a class="nav-item" data-page="email-gen" onclick="showPage('email-gen')">
-          <span class="icon">✨</span><span>Email Generator</span>
+          <span class="icon">✨</span><span>Single Email</span>
+        </a>
+        <a class="nav-item" data-page="campaigns" onclick="showPage('campaigns')">
+          <span class="icon">📧</span><span>Campaigns</span>
         </a>
       </div>
 
@@ -75,7 +88,7 @@
         </div>
         <div class="btn-group">
           <button class="btn btn-secondary" onclick="importLeads()">📥 Import Leads</button>
-          <button class="btn btn-primary" onclick="showPage('email-gen')">✨ Generate Emails</button>
+          <button class="btn btn-primary" onclick="showPage('bulk-email')">✉️ Bulk Email</button>
         </div>
       </div>
 
@@ -124,6 +137,186 @@
             <p class="text-center" style="color:var(--text-muted)">Loading...</p>
           </div>
         </div>
+      </div>
+    </section>
+
+    <!-- ══════ APOLLO SEARCH PAGE ══════ -->
+    <section class="page-section" id="page-apollo-search">
+      <div class="page-header">
+        <div>
+          <h2>🔍 Apollo Lead Search</h2>
+          <p class="subtitle">Search Apollo.io using your ICP from bassi_config.yaml</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">ICP Search Configuration</div>
+        </div>
+        <p style="color:var(--text-secondary);font-size:0.85rem;margin-bottom:16px;">
+          Your ICP targets: <strong>Fashion Retailers, Clothing Brands, Department Stores</strong> in
+          <strong>UK, France, Germany, Netherlands, Italy, Spain, Sweden, Denmark, Belgium, Ireland</strong> —
+          Decision makers like <strong>Head of Sourcing, Procurement Director, Buying Manager, CEO</strong> —
+          Company size: <strong>50-10,000 employees</strong>
+        </p>
+        <div class="btn-group">
+          <button class="btn btn-primary" id="btn-apollo-search" onclick="triggerApolloSearch()">
+            🔍 Search Apollo
+          </button>
+          <button class="btn btn-secondary" id="btn-apollo-download" onclick="downloadApolloExcel()" style="display:none;">
+            📥 Download Excel
+          </button>
+        </div>
+      </div>
+
+      <div id="apollo-results" style="display:none;">
+        <div class="stats-grid" id="apollo-stats"></div>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">🏢 Search Results</div>
+            <span class="badge badge-new" id="apollo-results-count">0 leads</span>
+          </div>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Company</th>
+                  <th>Person</th>
+                  <th>Title</th>
+                  <th>Country</th>
+                  <th>Industry</th>
+                  <th>Employees</th>
+                </tr>
+              </thead>
+              <tbody id="apollo-table-body">
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════ UPLOAD EMAILS PAGE ══════ -->
+    <section class="page-section" id="page-upload-emails">
+      <div class="page-header">
+        <div>
+          <h2>📤 Upload Emails</h2>
+          <p class="subtitle">Upload scraped email addresses to merge with your leads</p>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">📁 Upload File</div>
+          </div>
+          <p style="color:var(--text-secondary);font-size:0.85rem;margin-bottom:16px;">
+            Upload a CSV or Excel (.xlsx) file with at minimum these columns:
+            <strong>Company Name</strong> and <strong>Email</strong>.
+            Optional columns: <strong>Person, Primary_Designation</strong>.
+          </p>
+          <div class="upload-dropzone" id="upload-dropzone">
+            <div class="upload-icon">📁</div>
+            <h3>Drop your CSV/Excel here</h3>
+            <p>or click to browse</p>
+            <input type="file" id="email-file-input" accept=".csv,.xlsx,.xls" style="display:none;" onchange="handleFileSelect(event)"/>
+          </div>
+          <button class="btn btn-primary mt-2" id="btn-upload" onclick="uploadEmails()" style="display:none;">
+            📤 Upload & Merge Emails
+          </button>
+          <div id="upload-file-info" style="display:none;" class="mt-2">
+            <p style="color:var(--accent-emerald);font-size:0.85rem;" id="upload-file-name"></p>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">📋 Upload Instructions</div>
+          </div>
+          <div style="color:var(--text-secondary);font-size:0.85rem;line-height:1.8;">
+            <p><strong>Step-by-step workflow:</strong></p>
+            <ol style="padding-left:20px;margin-top:8px;">
+              <li>Search Apollo → download the Excel sheet</li>
+              <li>Go to <a href="https://app.apollo.io" target="_blank" style="color:var(--accent-blue);">Apollo.io</a> and manually find email addresses</li>
+              <li>Fill in the <strong>Email</strong> column in the Excel</li>
+              <li>Upload the file here → emails merge with your leads</li>
+              <li>Go to <strong>Bulk Email</strong> → generate & send</li>
+            </ol>
+            <div class="mt-2" style="padding:12px;background:rgba(99,102,241,0.08);border-radius:8px;">
+              <p><strong>💡 Tip:</strong> Your file must have a <code>Company Name</code> column that matches existing leads for the merge to work.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="upload-results" style="display:none;" class="card mt-2">
+        <div class="card-header">
+          <div class="card-title">✅ Upload Results</div>
+        </div>
+        <div id="upload-results-content"></div>
+      </div>
+    </section>
+
+    <!-- ══════ BULK EMAIL PAGE ══════ -->
+    <section class="page-section" id="page-bulk-email">
+      <div class="page-header">
+        <div>
+          <h2>✉️ Bulk Email</h2>
+          <p class="subtitle">Generate & send personalized emails via Gemini Pro</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">⚡ Email Campaign Setup</div>
+        </div>
+        <div class="flex gap-2" style="flex-wrap:wrap;align-items:end;">
+          <div class="form-group" style="margin-bottom:0;flex:1;min-width:200px;">
+            <label class="form-label">Email Type</label>
+            <select class="form-select" id="bulk-email-type">
+              <option value="cold_outreach">Cold Outreach (Initial Email)</option>
+              <option value="follow_up_case_study">Follow-up: Case Study</option>
+              <option value="follow_up_samples">Follow-up: Free Samples</option>
+              <option value="breakup">Breakup Email</option>
+            </select>
+          </div>
+          <div class="btn-group" style="margin-bottom:0;">
+            <button class="btn btn-primary" id="btn-generate-all" onclick="generateAllEmails()">
+              ✨ Generate All Emails (Gemini Pro)
+            </button>
+            <button class="btn btn-success" id="btn-send-all" onclick="confirmSendAllEmails()" style="display:none;">
+              📨 Send All Emails
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Progress bar -->
+      <div id="bulk-progress" style="display:none;" class="card">
+        <div class="progress-header">
+          <span id="bulk-progress-text">Generating emails...</span>
+          <span class="loading-spinner"></span>
+        </div>
+        <div class="progress-bar-container mt-1">
+          <div class="progress-bar-fill" id="bulk-progress-bar" style="width:0%;"></div>
+        </div>
+      </div>
+
+      <!-- Generated emails list -->
+      <div id="bulk-email-list">
+        <div class="empty-state">
+          <div class="empty-icon">✉️</div>
+          <h3>No emails generated yet</h3>
+          <p>Click "Generate All Emails" to create personalized emails for all leads with email addresses</p>
+        </div>
+      </div>
+
+      <!-- Send results -->
+      <div id="send-results" style="display:none;" class="card mt-2">
+        <div class="card-header">
+          <div class="card-title">📊 Send Results</div>
+        </div>
+        <div id="send-results-content"></div>
       </div>
     </section>
 
@@ -201,8 +394,8 @@
     <section class="page-section" id="page-email-gen">
       <div class="page-header">
         <div>
-          <h2>Email Generator</h2>
-          <p class="subtitle">AI-powered personalized B2B email creation</p>
+          <h2>Single Email Generator</h2>
+          <p class="subtitle">Gemini Pro — personalized B2B email creation</p>
         </div>
       </div>
 
