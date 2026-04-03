@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Bassi Clothing — AI Marketing Dashboard</title>
+  <meta name="description" content="B2B Outbound Engine, Sales Pipeline, and Content Ops for Bassi Clothing's UK/EU garment export business."/>
+  <link rel="stylesheet" href="/static/styles.css"/>
+</head>
+<body>
+
+<div class="app-container">
+  <!-- ═══════ SIDEBAR ═══════ -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-logo">
+      <h1>🧵 Bassi Clothing</h1>
+      <p>AI Marketing Hub</p>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-section">
+        <div class="nav-section-title">Overview</div>
+        <a class="nav-item active" data-page="dashboard" onclick="showPage('dashboard')">
+          <span class="icon">📊</span><span>Dashboard</span>
+        </a>
+      </div>
+
+      <div class="nav-section">
+        <div class="nav-section-title">Outbound Engine</div>
+        <a class="nav-item" data-page="leads" onclick="showPage('leads')">
+          <span class="icon">👥</span><span>Leads</span>
+          <span class="badge" id="leads-count-badge">0</span>
+        </a>
+        <a class="nav-item" data-page="campaigns" onclick="showPage('campaigns')">
+          <span class="icon">📧</span><span>Campaigns</span>
+        </a>
+        <a class="nav-item" data-page="email-gen" onclick="showPage('email-gen')">
+          <span class="icon">✨</span><span>Email Generator</span>
+        </a>
+      </div>
+
+      <div class="nav-section">
+        <div class="nav-section-title">Sales Pipeline</div>
+        <a class="nav-item" data-page="pipeline" onclick="showPage('pipeline')">
+          <span class="icon">🎯</span><span>Pipeline</span>
+        </a>
+        <a class="nav-item" data-page="scoring" onclick="showPage('scoring')">
+          <span class="icon">⭐</span><span>Lead Scoring</span>
+        </a>
+      </div>
+
+      <div class="nav-section">
+        <div class="nav-section-title">Content Ops</div>
+        <a class="nav-item" data-page="catalog" onclick="showPage('catalog')">
+          <span class="icon">📦</span><span>Product Catalog</span>
+        </a>
+        <a class="nav-item" data-page="case-studies" onclick="showPage('case-studies')">
+          <span class="icon">📋</span><span>Case Studies</span>
+        </a>
+        <a class="nav-item" data-page="calendar" onclick="showPage('calendar')">
+          <span class="icon">📅</span><span>Content Calendar</span>
+        </a>
+      </div>
+    </nav>
+  </aside>
+
+  <!-- ═══════ MAIN CONTENT ═══════ -->
+  <main class="main-content">
+
+    <!-- ══════ DASHBOARD PAGE ══════ -->
+    <section class="page-section active" id="page-dashboard">
+      <div class="page-header">
+        <div>
+          <h2>Dashboard</h2>
+          <p class="subtitle">Bassi Clothing B2B Marketing — UK & EU Focus</p>
+        </div>
+        <div class="btn-group">
+          <button class="btn btn-secondary" onclick="importLeads()">📥 Import Leads</button>
+          <button class="btn btn-primary" onclick="showPage('email-gen')">✨ Generate Emails</button>
+        </div>
+      </div>
+
+      <div class="stats-grid" id="dashboard-stats">
+        <div class="stat-card">
+          <div class="stat-icon">👥</div>
+          <div class="stat-value" id="stat-total-leads">-</div>
+          <div class="stat-label">Total Leads</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">📧</div>
+          <div class="stat-value" id="stat-with-email">-</div>
+          <div class="stat-label">With Email</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">📨</div>
+          <div class="stat-value" id="stat-contacted">-</div>
+          <div class="stat-label">Contacted</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">💬</div>
+          <div class="stat-value" id="stat-replied">-</div>
+          <div class="stat-label">Replied</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">🎯</div>
+          <div class="stat-value" id="stat-meetings">-</div>
+          <div class="stat-label">Meetings</div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">🌍 Leads by Country</div>
+          </div>
+          <div id="country-breakdown">
+            <p class="text-center" style="color:var(--text-muted)">Loading...</p>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">🏭 Leads by Industry</div>
+          </div>
+          <div id="industry-breakdown">
+            <p class="text-center" style="color:var(--text-muted)">Loading...</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════ LEADS PAGE ══════ -->
+    <section class="page-section" id="page-leads">
+      <div class="page-header">
+        <div>
+          <h2>Leads</h2>
+          <p class="subtitle">UK & EU Fashion Retailers — Your B2B Prospect List</p>
+        </div>
+        <div class="btn-group">
+          <button class="btn btn-secondary" onclick="importLeads()">📥 Import CSV</button>
+        </div>
+      </div>
+
+      <!-- Filters -->
+      <div class="card" style="padding: 16px;">
+        <div class="flex gap-2" style="flex-wrap:wrap;align-items:end;">
+          <div class="form-group" style="margin-bottom:0;flex:1;min-width:150px;">
+            <label class="form-label">Country</label>
+            <select class="form-select" id="filter-country" onchange="filterLeads()">
+              <option value="">All Countries</option>
+              <option value="United Kingdom">🇬🇧 United Kingdom</option>
+              <option value="France">🇫🇷 France</option>
+              <option value="Germany">🇩🇪 Germany</option>
+              <option value="Netherlands">🇳🇱 Netherlands</option>
+              <option value="Sweden">🇸🇪 Sweden</option>
+              <option value="Denmark">🇩🇰 Denmark</option>
+              <option value="Italy">🇮🇹 Italy</option>
+              <option value="Spain">🇪🇸 Spain</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom:0;flex:1;min-width:150px;">
+            <label class="form-label">Stage</label>
+            <select class="form-select" id="filter-stage" onchange="filterLeads()">
+              <option value="">All Stages</option>
+              <option value="new">New</option>
+              <option value="contacted">Contacted</option>
+              <option value="replied">Replied</option>
+              <option value="meeting_booked">Meeting Booked</option>
+              <option value="negotiation">Negotiation</option>
+              <option value="won">Won</option>
+              <option value="lost">Lost</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom:0;flex:2;min-width:200px;">
+            <label class="form-label">Search</label>
+            <input class="form-input" type="text" id="filter-query" placeholder="Search companies..." oninput="filterLeads()"/>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mt-2">
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Company</th>
+                <th>Country</th>
+                <th>Industry</th>
+                <th>Employees</th>
+                <th>Stage</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="leads-table-body">
+              <tr><td colspan="6" class="text-center" style="padding:40px;color:var(--text-muted)">Loading leads...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════ EMAIL GENERATOR PAGE ══════ -->
+    <section class="page-section" id="page-email-gen">
+      <div class="page-header">
+        <div>
+          <h2>Email Generator</h2>
+          <p class="subtitle">AI-powered personalized B2B email creation</p>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header"><div class="card-title">⚙️ Configure</div></div>
+          <div class="form-group">
+            <label class="form-label">Select Lead</label>
+            <select class="form-select" id="email-lead-select">
+              <option value="">Choose a company...</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Email Type</label>
+            <select class="form-select" id="email-type-select">
+              <option value="cold_outreach">Cold Outreach (Initial Email)</option>
+              <option value="follow_up_case_study">Follow-up: Case Study</option>
+              <option value="follow_up_samples">Follow-up: Free Samples</option>
+              <option value="breakup">Breakup Email</option>
+            </select>
+          </div>
+          <button class="btn btn-primary" onclick="generateEmail()" id="btn-generate">
+            ✨ Generate Email
+          </button>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">📧 Generated Email</div>
+            <div id="email-quality-badge"></div>
+          </div>
+          <div id="email-result">
+            <div class="empty-state">
+              <div class="empty-icon">✨</div>
+              <h3>No email generated yet</h3>
+              <p>Select a lead and click Generate</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════ CAMPAIGNS PAGE ══════ -->
+    <section class="page-section" id="page-campaigns">
+      <div class="page-header">
+        <div>
+          <h2>Campaigns</h2>
+          <p class="subtitle">Track and manage your outbound email campaigns</p>
+        </div>
+        <button class="btn btn-primary" onclick="showCreateCampaignModal()">➕ New Campaign</button>
+      </div>
+      <div class="card">
+        <div id="campaigns-list">
+          <div class="empty-state">
+            <div class="empty-icon">📧</div>
+            <h3>No campaigns yet</h3>
+            <p>Create your first campaign to start outreach</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════ PIPELINE PAGE ══════ -->
+    <section class="page-section" id="page-pipeline">
+      <div class="page-header">
+        <div>
+          <h2>Sales Pipeline</h2>
+          <p class="subtitle">Kanban view of your deal pipeline</p>
+        </div>
+      </div>
+      <div class="kanban-board" id="kanban-board">
+        <p style="color:var(--text-muted);padding:40px;">Loading pipeline...</p>
+      </div>
+    </section>
+
+    <!-- ══════ SCORING PAGE ══════ -->
+    <section class="page-section" id="page-scoring">
+      <div class="page-header">
+        <div>
+          <h2>Lead Scoring</h2>
+          <p class="subtitle">ICP-based scoring — prioritize your best-fit prospects</p>
+        </div>
+        <button class="btn btn-primary" onclick="loadScoring()">🔄 Refresh Scores</button>
+      </div>
+
+      <div class="stats-grid" id="scoring-stats"></div>
+
+      <div class="card">
+        <div class="card-header"><div class="card-title">🏆 Top Leads by Score</div></div>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Company</th>
+                <th>Country</th>
+                <th>Industry</th>
+                <th>Score</th>
+                <th>Grade</th>
+                <th>Recommendation</th>
+              </tr>
+            </thead>
+            <tbody id="scoring-table-body">
+              <tr><td colspan="6" class="text-center" style="padding:40px;color:var(--text-muted)">Click "Refresh Scores" to analyze leads</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════ CATALOG PAGE ══════ -->
+    <section class="page-section" id="page-catalog">
+      <div class="page-header">
+        <div>
+          <h2>Product Catalog</h2>
+          <p class="subtitle">Bassi Clothing product range for B2B buyers</p>
+        </div>
+        <div class="btn-group">
+          <button class="btn btn-secondary" onclick="saveCatalog('markdown')">📄 Export Markdown</button>
+          <button class="btn btn-primary" onclick="saveCatalog('html')">🌐 Export HTML</button>
+        </div>
+      </div>
+      <div class="card">
+        <div id="catalog-content" style="white-space:pre-wrap;font-size:0.875rem;line-height:1.8;color:var(--text-secondary);">
+          Loading catalog...
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════ CASE STUDIES PAGE ══════ -->
+    <section class="page-section" id="page-case-studies">
+      <div class="page-header">
+        <div>
+          <h2>Case Studies</h2>
+          <p class="subtitle">B2B success stories for prospect outreach</p>
+        </div>
+      </div>
+      <div id="case-studies-list"></div>
+    </section>
+
+    <!-- ══════ CONTENT CALENDAR PAGE ══════ -->
+    <section class="page-section" id="page-calendar">
+      <div class="page-header">
+        <div>
+          <h2>Content Calendar</h2>
+          <p class="subtitle">Monthly B2B content planning</p>
+        </div>
+        <select class="form-select" id="calendar-month" onchange="loadCalendar()" style="width:auto;">
+          <option value="">This Month</option>
+          <option value="January">January</option>
+          <option value="February">February</option>
+          <option value="March">March</option>
+          <option value="April">April</option>
+          <option value="May">May</option>
+          <option value="June">June</option>
+          <option value="July">July</option>
+          <option value="August">August</option>
+          <option value="September">September</option>
+          <option value="October">October</option>
+          <option value="November">November</option>
+          <option value="December">December</option>
+        </select>
+      </div>
+      <div class="card">
+        <div id="calendar-content">Loading calendar...</div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- Toast container -->
+<div class="toast-container" id="toast-container"></div>
+
+<!-- Modal container -->
+<div class="modal-overlay" id="modal-overlay" onclick="closeModal(event)">
+  <div class="modal" id="modal-content" onclick="event.stopPropagation()">
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

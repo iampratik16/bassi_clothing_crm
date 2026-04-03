@@ -1,0 +1,12 @@
+# Bassi Clothing — AI Marketing Skills Toolkit
+.env
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+data/leads.json
+output/
+*.db
+.venv/
+venv/
+node_modules/

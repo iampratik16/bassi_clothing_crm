@@ -1,0 +1,190 @@
+# ============================================================
+# Bassi Clothing — Company Configuration
+# B2B Garment Manufacturing & Export → UK/EU
+# ============================================================
+
+company:
+  name: "Bassi Clothing"
+  industry: "B2B Garment Manufacturing & Export"
+  target_market: "UK and European Fashion Retailers"
+  website: "https://bassiclothing.com"
+  tagline: "Premium Garment Manufacturing for European Fashion"
+
+ideal_customer_profile:
+  company_types:
+    - "Fashion Retailers"
+    - "Clothing Brands"
+    - "Department Stores"
+    - "E-commerce Fashion Platforms"
+    - "Private Label Brands"
+    - "Sustainable Fashion Startups"
+
+  locations:
+    - "United Kingdom"
+    - "France"
+    - "Germany"
+    - "Netherlands"
+    - "Italy"
+    - "Spain"
+    - "Sweden"
+    - "Denmark"
+    - "Belgium"
+    - "Ireland"
+
+  decision_makers:
+    - "Head of Sourcing"
+    - "Procurement Director"
+    - "Buying Manager"
+    - "Supply Chain Manager"
+    - "Head of Purchasing"
+    - "CEO"
+    - "Managing Director"
+    - "Operations Director"
+    - "Head of Operations"
+
+  company_size:
+    min_employees: 50
+    max_employees: 10000
+
+  scoring_weights:
+    company_size: 0.20
+    industry_match: 0.25
+    location_match: 0.25
+    engagement: 0.30
+
+value_proposition:
+  main_message: "Premium quality garment manufacturing with reliable EU/UK delivery"
+
+  key_benefits:
+    - "MOQ flexibility for emerging brands (as low as 300 pieces)"
+    - "Fast turnaround times (20-30 days production)"
+    - "Strict quality control with internationally recognized certifications"
+    - "Competitive pricing — direct manufacturer, no middlemen"
+    - "Sustainable manufacturing practices (GOTS, Oeko-Tex certified)"
+    - "Dedicated account manager for each client"
+
+  differentiators:
+    - "Direct manufacturer — zero middlemen markup"
+    - "Full compliance with UK/EU quality standards"
+    - "Established export infrastructure to Europe"
+    - "Samples delivered within 7 business days"
+    - "Free initial design consultation"
+    - "Transparent pricing with no hidden costs"
+
+  pain_points_addressed:
+    - "Long lead times from Far East suppliers (6-8 weeks vs our 20-30 days)"
+    - "Quality inconsistency across production batches"
+    - "High MOQs that block emerging brands (other: 1000+, us: 300)"
+    - "Complicated import logistics and customs delays"
+    - "Lack of sustainable manufacturing options"
+    - "Poor communication with overseas factories"
+
+product_categories:
+  - category: "T-Shirts & Polo Shirts"
+    moq: 500
+    lead_time_days: 20
+    price_range_usd: "3.50-5.00"
+    fabrics: ["100% Cotton", "Organic Cotton", "Cotton-Poly Blend", "Bamboo"]
+    certifications: ["GOTS", "Oeko-Tex"]
+    customization: ["Screen Print", "Embroidery", "Labels", "Packaging"]
+
+  - category: "Hoodies & Sweatshirts"
+    moq: 300
+    lead_time_days: 25
+    price_range_usd: "8.00-12.00"
+    fabrics: ["Fleece", "French Terry", "Organic Cotton"]
+    certifications: ["GOTS", "Oeko-Tex"]
+    customization: ["Screen Print", "Embroidery", "Custom Colors", "Patches"]
+
+  - category: "Denim Jeans & Jackets"
+    moq: 300
+    lead_time_days: 30
+    price_range_usd: "10.00-18.00"
+    fabrics: ["Denim (various weights)", "Stretch Denim", "Organic Denim"]
+    certifications: ["Oeko-Tex"]
+    customization: ["Washes", "Distressing", "Custom Cuts", "Hardware"]
+
+  - category: "Casual Wear"
+    moq: 500
+    lead_time_days: 22
+    price_range_usd: "4.00-8.00"
+    fabrics: ["Cotton", "Linen", "Cotton-Linen Blend"]
+    certifications: ["GOTS", "Oeko-Tex"]
+    customization: ["Print", "Embroidery", "Custom Designs"]
+
+  - category: "Activewear"
+    moq: 500
+    lead_time_days: 25
+    price_range_usd: "6.00-10.00"
+    fabrics: ["Polyester-Spandex", "Moisture-Wicking", "Recycled Polyester"]
+    certifications: ["Oeko-Tex", "GRS"]
+    customization: ["Sublimation Print", "Custom Fit", "Reflective Details"]
+
+  - category: "Sustainable / Organic Cotton Garments"
+    moq: 300
+    lead_time_days: 25
+    price_range_usd: "5.00-12.00"
+    fabrics: ["GOTS Organic Cotton", "Recycled Cotton", "Hemp Blend", "Tencel"]
+    certifications: ["GOTS", "Oeko-Tex", "GRS", "Fair Trade"]
+    customization: ["Eco-Friendly Dyes", "Natural Print", "Recycled Labels"]
+
+email_templates:
+  cold_outreach:
+    subject_lines:
+      - "{{company_name}} × Bassi — Reliable Garment Manufacturing for the UK Market"
+      - "Quality {{product_category}} Manufacturing — Direct to {{country}}"
+      - "Quick Q: Sourcing Challenges for Your {{season}} Collection?"
+      - "{{company_name}} — Could Your Supply Chain Use a Backup?"
+      - "MOQ 300, 20-Day Delivery to {{country}} — Is That Interesting?"
+
+    body_structure:
+      - "Brief personalized intro (reference their brand/recent launch)"
+      - "Specific pain point (long lead times / quality issues / MOQ too high)"
+      - "Our solution (fast, flexible, quality-focused)"
+      - "Social proof (similar brands we work with)"
+      - "Low-friction CTA (samples, catalog, 15-min call)"
+
+  follow_up:
+    cadence:
+      - day: 1
+        type: "Initial outreach"
+      - day: 4
+        type: "Case study / portfolio share"
+      - day: 8
+        type: "Specific offer (free samples)"
+      - day: 14
+        type: "Breakup email (permission to close file)"
+
+content_guidelines:
+  tone: "Professional but approachable, not pushy"
+  max_word_count: 180
+  avoid:
+    - "Generic mass email language"
+    - "Hard selling or pressure tactics"
+    - "Too much technical jargon"
+    - "Mentioning competitors by name"
+
+  include:
+    - "Specific numbers (MOQ, lead times, pricing ranges)"
+    - "Social proof (brands served, certifications)"
+    - "Clear, low-pressure next step"
+    - "Personal touch (reference their brand specifically)"
+
+seasonal_outreach:
+  spring_summer:
+    outreach_months: ["October", "November", "December"]
+    focus: "Lightweight fabrics, casual wear, activewear"
+  fall_winter:
+    outreach_months: ["April", "May", "June"]
+    focus: "Hoodies, sweatshirts, denim, outerwear"
+  note: "Buyers plan 6-9 months ahead"
+
+gdpr_compliance:
+  basis: "Legitimate interest (B2B prospecting)"
+  requirements:
+    - "Only email business contacts (not personal addresses)"
+    - "Include unsubscribe link in every email"
+    - "Honor opt-outs within 24 hours"
+    - "Don't buy email lists"
+    - "Store opt-outs permanently"
+    - "Include company contact details in footer"

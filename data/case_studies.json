@@ -1,0 +1,53 @@
+[
+  {
+    "id": "cs-001",
+    "title": "UK Streetwear Brand — Sustainable Hoodie Line Launch",
+    "client": "A mid-size UK streetwear brand (50+ employees)",
+    "industry": "Fashion Retail (Streetwear)",
+    "country": "United Kingdom",
+    "challenge": "The brand needed a manufacturing partner who could produce 2,000 organic cotton hoodies in 4 weeks for their autumn drop. Their previous Far East supplier quoted 8 weeks minimum with an MOQ of 5,000 — too slow and too many units for a limited-edition capsule. Quality consistency was also a concern after a bad batch ruined 15% of their last order.",
+    "solution": "Bassi Clothing delivered: (1) MOQ of 300 per colorway, allowing a 5-color capsule collection; (2) GOTS-certified organic cotton fleece at 300 GSM; (3) Full production completed in 22 days from sample approval; (4) Dedicated QC at every stage with photo documentation; (5) Direct shipping to their UK warehouse via air freight.",
+    "results": {
+      "cost_savings": "30% lower per-unit cost vs. previous supplier",
+      "delivery": "100% on-time delivery — 22 days from approval to UK warehouse",
+      "quality": "Zero defects on final inspection (AQL 2.5 standard)",
+      "reorder": "Brand placed repeat order for Spring/Summer 2026 within 3 weeks"
+    },
+    "testimonial": "Bassi Clothing understood our vision from day one. The samples arrived in 5 days, production was flawless, and the pricing let us actually make margin on a sustainable line. We've never had this experience with any other manufacturer.",
+    "created_at": "2026-01-15"
+  },
+  {
+    "id": "cs-002",
+    "title": "German E-commerce Brand — Private Label T-Shirt Range",
+    "client": "A fast-growing German DTC fashion brand",
+    "industry": "E-commerce Fashion",
+    "country": "Germany",
+    "challenge": "The brand was scaling rapidly and needed a reliable manufacturing partner for their core product line of premium basics. Their key requirements: consistent quality across 10,000+ units per month, Oeko-Tex certification for the German market, and the ability to handle 15+ SKUs simultaneously.",
+    "solution": "Bassi Clothing provided: (1) Dedicated production line for their monthly orders; (2) Oeko-Tex Standard 100 certified fabrics across all SKUs; (3) Custom color-matched Pantone shades for brand consistency; (4) Monthly production capacity of 12,000 units with surge capability to 18,000; (5) DAP shipping to their German fulfillment center.",
+    "results": {
+      "cost_savings": "25% reduction in per-unit costs compared to European manufacturing",
+      "delivery": "98.5% on-time delivery rate over 6 months",
+      "quality": "Defect rate below 0.5% consistently",
+      "reorder": "12-month rolling contract signed after 3-month trial"
+    },
+    "testimonial": "The combination of quality, price, and reliability is exceptional. We've been able to launch new colorways every month without worrying about production bottlenecks.",
+    "created_at": "2025-11-20"
+  },
+  {
+    "id": "cs-003",
+    "title": "Dutch Sustainable Fashion Startup — Complete Product Line",
+    "client": "A sustainability-focused Dutch fashion startup",
+    "industry": "Sustainable Fashion",
+    "country": "Netherlands",
+    "challenge": "As a young brand with limited capital, they needed a manufacturer who could handle small initial orders (MOQ under 500) while maintaining premium sustainable standards. They required GOTS certification, traceable supply chain documentation, and eco-friendly packaging — all at a price point that allowed viable retail margins.",
+    "solution": "Bassi Clothing offered: (1) Startup-friendly MOQ of 300 pieces per style; (2) Full GOTS certification with supply chain transparency reports; (3) Water-based inks and natural dyes for all printing; (4) Compostable poly bags and recycled cardboard packaging; (5) Flexible payment terms (50% advance, 50% on shipment).",
+    "results": {
+      "cost_savings": "40% lower than European sustainable manufacturers",
+      "delivery": "All 3 initial styles delivered in 25 days",
+      "quality": "Full GOTS audit passed on first attempt",
+      "reorder": "Expanded to 8 styles within 4 months, 3x initial order volume"
+    },
+    "testimonial": "Finding a manufacturer that takes sustainability as seriously as we do, at a price point that works for a startup — that's incredibly rare. Bassi Clothing is now our only manufacturing partner.",
+    "created_at": "2026-02-10"
+  }
+]
