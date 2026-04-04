@@ -15,14 +15,15 @@ from typing import Optional
 
 from fastapi import FastAPI, Request, Query, UploadFile, File, Form
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, Response
 from dotenv import load_dotenv
+import asyncio
 
 # Add parent to path
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
 
-load_dotenv(BASE_DIR / ".env")
+load_dotenv(BASE_DIR / ".env", override=True)
 
 app = FastAPI(
     title="Bassi Clothing — AI Marketing Dashboard",
@@ -137,7 +138,7 @@ async def api_apollo_search(request: Request):
 
     from outbound_engine.apollo_search import search_apollo_leads, export_leads_to_excel
 
-    result = search_apollo_leads(page=page, per_page=per_page)
+    result = await asyncio.to_thread(search_apollo_leads, page=page, per_page=per_page)
 
     if result.get("error"):
         return JSONResponse(status_code=400, content=result)
@@ -296,6 +297,7 @@ async def api_generate_email(request: Request):
     body = await request.json()
     lead_id = body.get("lead_id", "")
     email_type = body.get("email_type", "cold_outreach")
+    generation_method = body.get("generation_method", "ai")
 
     from outbound_engine.lead_manager import get_lead
     from outbound_engine.email_generator import generate_email, score_email
@@ -304,7 +306,7 @@ async def api_generate_email(request: Request):
     if not lead:
         return JSONResponse(status_code=404, content={"error": "Lead not found"})
 
-    email = generate_email(lead, email_type)
+    email = await asyncio.to_thread(generate_email, lead, email_type, generation_method=generation_method)
     quality = score_email(email)
     email["quality_score"] = quality
 
@@ -316,6 +318,7 @@ async def api_generate_batch(request: Request):
     body = await request.json()
     lead_ids = body.get("lead_ids", [])
     email_type = body.get("email_type", "cold_outreach")
+    generation_method = body.get("generation_method", "ai")
 
     from outbound_engine.lead_manager import get_lead
     from outbound_engine.email_generator import generate_email, score_email
@@ -324,7 +327,7 @@ async def api_generate_batch(request: Request):
     for lid in lead_ids:
         lead = get_lead(lid)
         if lead:
-            email = generate_email(lead, email_type)
+            email = await asyncio.to_thread(generate_email, lead, email_type, generation_method=generation_method)
             email["quality_score"] = score_email(email)
             emails.append(email)
 
@@ -336,6 +339,7 @@ async def api_generate_all_emails(request: Request):
     """Generate personalized emails for all leads that have email addresses."""
     body = await request.json()
     email_type = body.get("email_type", "cold_outreach")
+    generation_method = body.get("generation_method", "ai")
 
     from outbound_engine.lead_manager import get_all_leads
     from outbound_engine.email_generator import generate_email, score_email
@@ -355,7 +359,7 @@ async def api_generate_all_emails(request: Request):
         if not contact:
             continue
 
-        email = generate_email(lead, email_type)
+        email = await asyncio.to_thread(generate_email, lead, email_type, generation_method=generation_method)
         email["lead_id"] = lead.get("id", "")
         email["to_email"] = contact["email"]
         email["to_name"] = contact.get("name", "")
@@ -386,7 +390,7 @@ async def api_send_campaign(request: Request):
     schedule = body.get("schedule", "immediate")
 
     from outbound_engine.email_sender import send_campaign
-    result = send_campaign(emails, schedule)
+    result = await asyncio.to_thread(send_campaign, emails, schedule)
     return result
 
 
@@ -395,7 +399,14 @@ async def api_send_all_emails(request: Request):
     """Send all previously generated emails."""
     from outbound_engine.email_sender import send_email, DRY_RUN, MAX_EMAILS_PER_DAY
 
-    emails = _load_generated_emails()
+    try:
+        body = await request.json()
+        emails = body.get("emails")
+    except Exception:
+        emails = None
+
+    if not emails:
+        emails = _load_generated_emails()
     if not emails:
         return {"error": "No generated emails to send. Generate emails first.", "results": []}
 
@@ -416,7 +427,8 @@ async def api_send_all_emails(request: Request):
             })
             continue
 
-        result = send_email(
+        result = await asyncio.to_thread(
+            send_email,
             to_email=to_email,
             to_name=to_name,
             subject=subject,
@@ -436,6 +448,39 @@ async def api_send_all_emails(request: Request):
     results["total_processed"] = len(emails)
 
     return results
+
+
+@app.post("/api/emails/send-single")
+async def api_send_single_email(request: Request):
+    """Send a single generated email immediately."""
+    body = await request.json()
+    to_email = body.get("to_email", "")
+    to_name = body.get("to_name", "")
+    subject = body.get("subject", "")
+    email_body = body.get("body", "")
+    lead_id = body.get("lead_id", "")
+
+    if not to_email or not subject or not email_body:
+        return JSONResponse(status_code=400, content={
+            "error": "Missing required fields: to_email, subject, body"
+        })
+
+    from outbound_engine.email_sender import send_email
+
+    result = await asyncio.to_thread(
+        send_email,
+        to_email=to_email,
+        to_name=to_name,
+        subject=subject,
+        body=email_body,
+        email_data={
+            "lead_id": lead_id,
+            "company_name": body.get("company_name", ""),
+            "email_type": body.get("email_type", "cold_outreach"),
+        },
+    )
+
+    return result
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -474,6 +519,120 @@ async def api_analytics():
         "campaigns": get_overall_analytics(),
         "send_logs": get_send_log_summary(7),
     }
+
+
+@app.post("/api/campaigns/sync")
+async def api_sync_campaign_stats():
+    """Auto-sync all campaign stats from send logs, opens, and replies."""
+    from outbound_engine.campaign_tracker import sync_stats_from_logs
+    return sync_stats_from_logs()
+
+
+# ═══════════════════════════════════════════════════════════════
+#  OPEN TRACKING
+# ═══════════════════════════════════════════════════════════════
+
+# 1x1 transparent GIF
+TRACKING_PIXEL = bytes([
+    0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00,
+    0x01, 0x00, 0x80, 0x00, 0x00, 0xFF, 0xFF, 0xFF,
+    0x00, 0x00, 0x00, 0x21, 0xF9, 0x04, 0x01, 0x00,
+    0x00, 0x00, 0x00, 0x2C, 0x00, 0x00, 0x00, 0x00,
+    0x01, 0x00, 0x01, 0x00, 0x00, 0x02, 0x02, 0x44,
+    0x01, 0x00, 0x3B
+])
+
+OPENS_FILE = BASE_DIR / "data" / "email_opens.json"
+
+
+@app.get("/track/open/{send_id}")
+async def track_open(send_id: str, request: Request):
+    """Record an email open event and return a 1x1 transparent GIF."""
+    try:
+        opens = []
+        if OPENS_FILE.exists():
+            with open(OPENS_FILE, "r") as f:
+                opens = json.load(f)
+
+        # Avoid duplicate logging for the same send_id
+        existing_ids = {o.get("send_id") for o in opens}
+        if send_id not in existing_ids:
+            opens.append({
+                "send_id": send_id,
+                "opened_at": datetime.now().isoformat(),
+                "user_agent": request.headers.get("user-agent", ""),
+                "ip_address": request.client.host if request.client else "",
+            })
+            OPENS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            with open(OPENS_FILE, "w") as f:
+                json.dump(opens, f, indent=2)
+    except Exception:
+        pass  # Never break email rendering
+
+    return Response(content=TRACKING_PIXEL, media_type="image/gif")
+
+
+@app.get("/api/opens")
+async def api_get_opens():
+    """Get all email open events."""
+    if OPENS_FILE.exists():
+        with open(OPENS_FILE, "r") as f:
+            opens = json.load(f)
+        return {"opens": opens, "total": len(opens)}
+    return {"opens": [], "total": 0}
+
+
+# ═══════════════════════════════════════════════════════════════
+#  REPLY TRACKING (IMAP)
+# ═══════════════════════════════════════════════════════════════
+
+@app.post("/api/replies/scan")
+async def api_scan_replies():
+    """Scan inbox for new replies via IMAP."""
+    from outbound_engine.reply_tracker import scan_inbox
+    result = await asyncio.to_thread(scan_inbox)
+    return result
+
+
+@app.get("/api/replies")
+async def api_get_replies():
+    """Get all tracked replies."""
+    from outbound_engine.reply_tracker import get_all_replies, get_reply_stats
+    replies = get_all_replies()
+    stats = get_reply_stats()
+    return {"replies": replies, "stats": stats}
+
+
+@app.post("/api/replies/{reply_id}/read")
+async def api_mark_reply_read(reply_id: str):
+    """Mark a reply as read."""
+    from outbound_engine.reply_tracker import mark_reply_read
+    success = mark_reply_read(reply_id)
+    return {"success": success}
+
+
+@app.get("/api/replies/stats")
+async def api_reply_stats():
+    """Get reply statistics."""
+    from outbound_engine.reply_tracker import get_reply_stats
+    return get_reply_stats()
+
+
+# ─── Background reply scanner ───
+async def _background_reply_scanner():
+    """Auto-scan inbox every 5 minutes."""
+    while True:
+        await asyncio.sleep(300)  # 5 minutes
+        try:
+            from outbound_engine.reply_tracker import scan_inbox
+            await asyncio.to_thread(scan_inbox)
+        except Exception as e:
+            print(f"Background scan error: {e}")
+
+
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(_background_reply_scanner())
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -540,6 +699,56 @@ async def api_score_lead(lead_id: str):
     if not lead:
         return JSONResponse(status_code=404, content={"error": "Lead not found"})
     return score_lead(lead)
+
+
+# ═══════════════════════════════════════════════════════════════
+#  BIN / TRASH API
+# ═══════════════════════════════════════════════════════════════
+
+@app.post("/api/leads/{lead_id}/delete")
+async def api_soft_delete_lead(lead_id: str):
+    """Move a lead to the bin (soft delete)."""
+    from outbound_engine.lead_manager import move_to_bin
+    success = move_to_bin(lead_id)
+    if success:
+        return {"success": True, "message": "Lead moved to bin"}
+    return JSONResponse(status_code=404, content={"error": "Lead not found"})
+
+
+@app.get("/api/bin")
+async def api_get_bin():
+    """Get all leads in the bin."""
+    from outbound_engine.lead_manager import get_bin_leads
+    bin_leads = get_bin_leads()
+    return {"leads": bin_leads, "count": len(bin_leads)}
+
+
+@app.post("/api/bin/{lead_id}/restore")
+async def api_restore_lead(lead_id: str):
+    """Restore a lead from the bin back to active leads."""
+    from outbound_engine.lead_manager import restore_from_bin
+    success = restore_from_bin(lead_id)
+    if success:
+        return {"success": True, "message": "Lead restored"}
+    return JSONResponse(status_code=404, content={"error": "Lead not found in bin"})
+
+
+@app.delete("/api/bin/{lead_id}")
+async def api_permanent_delete(lead_id: str):
+    """Permanently delete a lead from the bin."""
+    from outbound_engine.lead_manager import permanent_delete
+    success = permanent_delete(lead_id)
+    if success:
+        return {"success": True, "message": "Lead permanently deleted"}
+    return JSONResponse(status_code=404, content={"error": "Lead not found in bin"})
+
+
+@app.delete("/api/bin")
+async def api_empty_bin():
+    """Empty the entire bin — permanently delete all."""
+    from outbound_engine.lead_manager import empty_bin
+    count = empty_bin()
+    return {"success": True, "deleted": count, "message": f"Permanently deleted {count} leads"}
 
 
 # ═══════════════════════════════════════════════════════════════

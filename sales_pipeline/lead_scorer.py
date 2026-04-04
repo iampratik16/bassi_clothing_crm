@@ -138,6 +138,31 @@ def score_lead(lead: Dict) -> Dict:
         scores["grade"] = "D"
         scores["recommendation"] = "Low fit — deprioritize or remove"
 
+    # --- Reason Synthesis ---
+    reasons = []
+    if scores.get("location_match", 0) == 100:
+        reasons.append(f"Priority region ({lead_country.title()}).")
+    elif scores.get("location_match", 0) >= 85:
+        reasons.append(f"Good location match ({lead_country.title()}).")
+
+    if scores.get("industry_match", 0) == 100:
+        reasons.append("Exact industry overlap.")
+    elif scores.get("industry_match", 0) >= 75:
+        reasons.append("Relevant industry alignment.")
+
+    if scores.get("company_size", 0) >= 60:
+        reasons.append("Optimal employee size.")
+
+    if scores.get("engagement", 0) >= 40:
+        reasons.append("High engagement.")
+    elif scores.get("engagement", 0) >= 20:
+        reasons.append("Direct contact data.")
+
+    if not reasons:
+        reasons.append("Does not strongly align with targets.")
+
+    scores["reason"] = " ".join(reasons)
+
     return scores
 
 

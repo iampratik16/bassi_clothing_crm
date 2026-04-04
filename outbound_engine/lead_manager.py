@@ -15,6 +15,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 LEADS_FILE = DATA_DIR / "leads.json"
 OPTOUTS_FILE = DATA_DIR / "optouts.json"
+BIN_FILE = DATA_DIR / "bin.json"
 
 LEAD_STAGES = [
     "new", "contacted", "replied", "meeting_booked",
@@ -254,8 +255,90 @@ def is_opted_out(email: str) -> bool:
     return email.lower() in [o.lower() for o in optouts]
 
 
+# ═══════════════════════════════════════════════════════════════
+#  BIN / TRASH SYSTEM
+# ═══════════════════════════════════════════════════════════════
+
+def _load_bin() -> List[Dict]:
+    if BIN_FILE.exists():
+        with open(BIN_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return []
+
+
+def _save_bin(bin_leads: List[Dict]):
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with open(BIN_FILE, "w", encoding="utf-8") as f:
+        json.dump(bin_leads, f, indent=2, ensure_ascii=False, default=str)
+
+
+def move_to_bin(lead_id: str) -> bool:
+    """Soft-delete: move a lead from leads.json to bin.json."""
+    leads = _load_leads()
+    bin_leads = _load_bin()
+    target = None
+    remaining = []
+    for lead in leads:
+        if lead["id"] == lead_id:
+            target = lead
+        else:
+            remaining.append(lead)
+    if not target:
+        return False
+    target["deleted_at"] = datetime.now().isoformat()
+    bin_leads.insert(0, target)
+    _save_leads(remaining)
+    _save_bin(bin_leads)
+    return True
+
+
+def get_bin_leads() -> List[Dict]:
+    """Return all leads currently in the bin."""
+    return _load_bin()
+
+
+def restore_from_bin(lead_id: str) -> bool:
+    """Restore a lead from the bin back to leads.json."""
+    bin_leads = _load_bin()
+    leads = _load_leads()
+    target = None
+    remaining = []
+    for lead in bin_leads:
+        if lead["id"] == lead_id:
+            target = lead
+        else:
+            remaining.append(lead)
+    if not target:
+        return False
+    target.pop("deleted_at", None)
+    target["updated_at"] = datetime.now().isoformat()
+    leads.insert(0, target)
+    _save_leads(leads)
+    _save_bin(remaining)
+    return True
+
+
+def permanent_delete(lead_id: str) -> bool:
+    """Permanently delete a lead from the bin."""
+    bin_leads = _load_bin()
+    remaining = [l for l in bin_leads if l["id"] != lead_id]
+    if len(remaining) == len(bin_leads):
+        return False
+    _save_bin(remaining)
+    return True
+
+
+def empty_bin() -> int:
+    """Permanently delete ALL leads in the bin. Returns count deleted."""
+    bin_leads = _load_bin()
+    count = len(bin_leads)
+    _save_bin([])
+    return count
+
+
 def get_pipeline_stats() -> Dict:
     leads = _load_leads()
+    bin_leads = _load_bin()
     stats = {stage: 0 for stage in LEAD_STAGES}
     countries = {}
     industries = {}
@@ -274,4 +357,5 @@ def get_pipeline_stats() -> Dict:
         "by_industry": dict(sorted(industries.items(), key=lambda x: -x[1])),
         "with_contacts": sum(1 for l in leads if l.get("contacts")),
         "with_email": sum(1 for l in leads if any(c.get("email") for c in l.get("contacts", []))),
+        "in_bin": len(bin_leads),
     }

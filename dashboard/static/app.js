@@ -8,6 +8,7 @@ const API = '';  // Same origin
 // ─── State ───
 let allLeads = [];
 let generatedEmails = [];
+let lastGeneratedEmail = null;
 let currentPage = 'dashboard';
 
 // ─── Init ───
@@ -41,9 +42,11 @@ function showPage(page) {
     case 'apollo-search': /* static page */ break;
     case 'upload-emails': /* static page */ break;
     case 'leads': loadLeads(); break;
+    case 'bin': loadBin(); break;
     case 'bulk-email': loadBulkEmail(); break;
     case 'email-gen': loadEmailGenOptions(); break;
     case 'campaigns': loadCampaigns(); break;
+    case 'replies': loadReplies(); break;
     case 'pipeline': loadPipeline(); break;
     case 'scoring': loadScoring(); break;
     case 'catalog': loadCatalog(); break;
@@ -66,10 +69,17 @@ async function loadDashboard() {
     document.getElementById('stat-contacted').textContent = stats.by_stage?.contacted || 0;
     document.getElementById('stat-replied').textContent = stats.by_stage?.replied || 0;
     document.getElementById('stat-meetings').textContent = stats.by_stage?.meeting_booked || 0;
+    document.getElementById('stat-in-bin').textContent = stats.in_bin || 0;
 
-    // Update badge
+    // Update badges
     const badge = document.getElementById('leads-count-badge');
     if (badge) badge.textContent = stats.total_leads || 0;
+    const binBadge = document.getElementById('bin-count-badge');
+    if (binBadge) {
+      const binCount = stats.in_bin || 0;
+      binBadge.textContent = binCount;
+      binBadge.style.display = binCount > 0 ? '' : 'none';
+    }
 
     // Country breakdown
     const countryDiv = document.getElementById('country-breakdown');
@@ -346,6 +356,7 @@ async function loadBulkEmail() {
 
 async function generateAllEmails() {
   const emailType = document.getElementById('bulk-email-type').value;
+  const generationMethod = document.getElementById('bulk-generation-method').value;
   const btn = document.getElementById('btn-generate-all');
 
   btn.disabled = true;
@@ -361,7 +372,7 @@ async function generateAllEmails() {
     const res = await fetch(`${API}/api/emails/generate-all`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email_type: emailType }),
+      body: JSON.stringify({ email_type: emailType, generation_method: generationMethod }),
     });
 
     document.getElementById('bulk-progress-bar').style.width = '90%';
@@ -415,11 +426,14 @@ function renderBulkEmails(emails) {
       </div>
       <div class="bulk-email-grid">
         ${emails.map((email, i) => {
-          const quality = email.quality_score || {};
-          const scoreColor = (quality.overall || 0) >= 80 ? 'var(--accent-emerald)' :
-                             (quality.overall || 0) >= 60 ? 'var(--accent-amber)' : 'var(--accent-rose)';
-          return `
-            <div class="bulk-email-card">
+    const quality = email.quality_score || {};
+    const scoreColor = (quality.overall || 0) >= 80 ? 'var(--accent-emerald)' :
+      (quality.overall || 0) >= 60 ? 'var(--accent-amber)' : 'var(--accent-rose)';
+    return `
+            <div class="bulk-email-card" style="cursor:pointer; position:relative; padding-bottom: 30px;" onclick="openBulkEditModal(${i})">
+              <div style="position:absolute; bottom:12px; right:15px; font-size:0.75rem; color:var(--text-muted);">
+                ✏️ Click to Edit
+              </div>
               <div class="bulk-email-header">
                 <div>
                   <div class="bulk-email-company">${escHtml(email.company_name || 'Unknown')}</div>
@@ -433,9 +447,35 @@ function renderBulkEmails(emails) {
                 ${email.ai_generated ? '🤖 Gemini Pro' : '📝 Template'} • ${email.model || 'N/A'}
               </div>
             </div>`;
-        }).join('')}
+  }).join('')}
       </div>
     </div>`;
+}
+
+function openBulkEditModal(index) {
+  const email = generatedEmails[index];
+  if (!email) return;
+  document.getElementById('bulk-edit-index').value = index;
+  document.getElementById('bulk-edit-subject').value = email.subject || '';
+  document.getElementById('bulk-edit-body').value = email.body || '';
+  document.getElementById('bulk-edit-modal').style.display = 'flex';
+}
+
+function closeBulkEditModal() {
+  document.getElementById('bulk-edit-modal').style.display = 'none';
+}
+
+function saveBulkEmailEdit() {
+  const index = document.getElementById('bulk-edit-index').value;
+  const newSubject = document.getElementById('bulk-edit-subject').value;
+  const newBody = document.getElementById('bulk-edit-body').value;
+  if (index !== "" && generatedEmails[index]) {
+    generatedEmails[index].subject = newSubject;
+    generatedEmails[index].body = newBody;
+    renderBulkEmails(generatedEmails);
+    closeBulkEditModal();
+    showToast('💾 Email edit saved locally!', 'success');
+  }
 }
 
 function confirmSendAllEmails() {
@@ -472,7 +512,7 @@ async function sendAllEmails() {
     const res = await fetch(`${API}/api/emails/send-all`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
+      body: JSON.stringify({ emails: generatedEmails }),
     });
     const data = await res.json();
 
@@ -576,8 +616,9 @@ function renderLeadsTable(leads) {
         <td><span class="badge badge-${lead.stage}">${lead.stage?.replace('_', ' ') || 'new'}</span></td>
         <td>
           <div class="btn-group">
-            <button class="btn btn-sm btn-secondary" onclick="viewLeadDetail('${lead.id}')">👁️</button>
-            <button class="btn btn-sm btn-primary" onclick="generateEmailForLead('${lead.id}')">✨</button>
+            <button class="btn btn-sm btn-secondary" onclick="viewLeadDetail('${lead.id}')" title="View">👁️</button>
+            <button class="btn btn-sm btn-primary" onclick="generateEmailForLead('${lead.id}')" title="Generate Email">✨</button>
+            <button class="btn btn-sm btn-danger" onclick="confirmDeleteLead('${lead.id}', '${escHtml(lead.company_name).replace(/'/g, "\\'")}')" title="Move to Bin">🗑️</button>
           </div>
         </td>
       </tr>`;
@@ -676,13 +717,14 @@ function viewLeadDetail(leadId) {
     <div class="mt-2">
       <div class="form-label">Update Stage</div>
       <select class="form-select" onchange="updateLeadStage('${lead.id}', this.value)">
-        ${['new','contacted','replied','meeting_booked','negotiation','won','lost'].map(s =>
-          `<option value="${s}" ${s === lead.stage ? 'selected' : ''}>${s.replace('_', ' ')}</option>`
-        ).join('')}
+        ${['new', 'contacted', 'replied', 'meeting_booked', 'negotiation', 'won', 'lost'].map(s =>
+    `<option value="${s}" ${s === lead.stage ? 'selected' : ''}>${s.replace('_', ' ')}</option>`
+  ).join('')}
       </select>
     </div>
     <div class="mt-2 btn-group">
       <button class="btn btn-primary" onclick="generateEmailForLead('${lead.id}')">✨ Generate Email</button>
+      <button class="btn btn-danger" onclick="confirmDeleteLead('${lead.id}', '${escHtml(lead.company_name).replace(/'/g, "\\'")}'); closeModal();">🗑️ Move to Bin</button>
     </div>
   `;
   document.getElementById('modal-overlay').classList.add('active');
@@ -710,13 +752,30 @@ async function loadEmailGenOptions() {
   try {
     const res = await fetch(`${API}/api/leads`);
     const data = await res.json();
+    window.emailGenLeads = data.leads || [];
     const select = document.getElementById('email-lead-select');
     select.innerHTML = '<option value="">Choose a company...</option>' +
-      (data.leads || []).map(l =>
-        `<option value="${l.id}">${escHtml(l.company_name)} (${escHtml(l.country)})</option>`
-      ).join('');
+      (window.emailGenLeads).map(l => {
+        let emailDisplay = '';
+        if (l.contacts && l.contacts.length > 0 && l.contacts[0].email) {
+          emailDisplay = ` - ${escHtml(l.contacts[0].email)}`;
+        }
+        return `<option value="${l.id}">${escHtml(l.company_name)} (${escHtml(l.country)})${emailDisplay}</option>`;
+      }).join('');
   } catch (e) {
     console.error('Load options error:', e);
+  }
+}
+
+function onEmailLeadSelectChange() {
+  const leadId = document.getElementById('email-lead-select').value;
+  const addressInput = document.getElementById('email-lead-address');
+  addressInput.value = '';
+
+  if (!leadId || !window.emailGenLeads) return;
+  const lead = window.emailGenLeads.find(l => l.id === leadId);
+  if (lead && lead.contacts && lead.contacts.length > 0 && lead.contacts[0].email) {
+    addressInput.value = lead.contacts[0].email;
   }
 }
 
@@ -742,11 +801,13 @@ async function generateEmail() {
   btn.disabled = true;
   btn.innerHTML = '<span class="loading-spinner"></span> Generating...';
 
+  const generationMethod = document.getElementById('generation-method-select').value;
+
   try {
     const res = await fetch(`${API}/api/emails/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lead_id: leadId, email_type: emailType }),
+      body: JSON.stringify({ lead_id: leadId, email_type: emailType, generation_method: generationMethod }),
     });
     const email = await res.json();
 
@@ -762,14 +823,16 @@ async function generateEmail() {
 
     const quality = email.quality_score || {};
     const gradeColor = quality.overall >= 80 ? 'var(--accent-emerald)' :
-                       quality.overall >= 60 ? 'var(--accent-amber)' : 'var(--accent-rose)';
+      quality.overall >= 60 ? 'var(--accent-amber)' : 'var(--accent-rose)';
 
     qualityBadge.innerHTML = `<span class="badge" style="background:${gradeColor}20;color:${gradeColor};">Score: ${quality.overall || '-'}/100</span>`;
 
     resultDiv.innerHTML = `
       <div class="email-preview">
-        <div class="email-subject">📧 ${escHtml(email.subject)}</div>
-        <div class="email-body">${escHtml(email.body)}</div>
+        <label class="form-label" style="font-size: 0.8rem; margin-bottom: 4px;">Subject</label>
+        <input type="text" id="edit-email-subject" class="form-input mb-2" value="${escHtml(email.subject)}" style="margin-bottom: 12px; font-weight: 500;" />
+        <label class="form-label" style="font-size: 0.8rem; margin-bottom: 4px;">Body</label>
+        <textarea id="edit-email-body" class="form-textarea" rows="12">${escHtml(email.body)}</textarea>
       </div>
       <div class="mt-2" style="font-size:0.8rem;color:var(--text-muted);">
         ${email.ai_generated ? '🤖 Gemini Pro' : '📝 Template Based'} •
@@ -779,7 +842,26 @@ async function generateEmail() {
         <h4 style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:8px;">Quality Breakdown</h4>
         ${renderScoreBreakdown(quality)}
       </div>
+      <div class="mt-2 btn-group">
+        <button class="btn btn-success" id="btn-send-single" onclick="sendSingleEmail()">
+          📨 Send This Email
+        </button>
+      </div>
     `;
+
+    // Store email data for sending
+    const selectedLead = allLeads.find(l => l.id === leadId);
+    const contact = selectedLead?.contacts?.find(c => c.email) || selectedLead?.contacts?.[0];
+    lastGeneratedEmail = {
+      lead_id: leadId,
+      to_email: document.getElementById('email-lead-address').value.trim(),
+      to_name: contact?.name || '',
+      company_name: selectedLead?.company_name || email.company_name || '',
+      subject: email.subject,
+      body: email.body,
+      email_type: emailType,
+    };
+
     showToast('✅ Email generated!', 'success');
 
   } catch (e) {
@@ -788,6 +870,64 @@ async function generateEmail() {
 
   btn.disabled = false;
   btn.innerHTML = '✨ Generate Email';
+}
+
+async function sendSingleEmail() {
+  if (!lastGeneratedEmail) {
+    showToast('⚠️ No email to send. Generate one first.', 'error');
+    return;
+  }
+
+  const overrideEmail = document.getElementById('email-lead-address').value.trim();
+  if (overrideEmail && lastGeneratedEmail) {
+    lastGeneratedEmail.to_email = overrideEmail;
+  }
+
+  if (!lastGeneratedEmail.to_email) {
+    showToast('❌ Please provide a valid receiver email.', 'error');
+    return;
+  }
+
+  if (document.getElementById('edit-email-subject')) {
+    lastGeneratedEmail.subject = document.getElementById('edit-email-subject').value;
+    lastGeneratedEmail.body = document.getElementById('edit-email-body').value;
+  }
+
+  const btn = document.getElementById('btn-send-single');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="loading-spinner"></span> Sending...';
+
+  try {
+    const res = await fetch(`${API}/api/emails/send-single`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(lastGeneratedEmail),
+    });
+    const result = await res.json();
+
+    if (result.error) {
+      showToast(`❌ ${result.error}`, 'error');
+    } else if (result.status === 'sent') {
+      showToast(`✅ Email sent to ${lastGeneratedEmail.to_email}!`, 'success');
+      btn.innerHTML = '✅ Sent!';
+      btn.style.opacity = '0.7';
+      return; // keep button disabled
+    } else if (result.status === 'dry_run') {
+      showToast(`🔍 DRY RUN — Email logged but not sent. Set DRY_RUN=false in .env to send for real.`, 'info');
+      btn.innerHTML = '🔍 Dry Run Logged';
+      btn.style.opacity = '0.7';
+      return;
+    } else if (result.status === 'skipped') {
+      showToast(`⚠️ Skipped: ${result.reason}`, 'error');
+    } else {
+      showToast(`❌ ${result.reason || 'Send failed'}`, 'error');
+    }
+  } catch (e) {
+    showToast('❌ Send failed: ' + e.message, 'error');
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = '📨 Send This Email';
 }
 
 function renderScoreBreakdown(scores) {
@@ -812,6 +952,9 @@ function renderScoreBreakdown(scores) {
 
 async function loadCampaigns() {
   try {
+    // Auto-sync stats first
+    await syncCampaignStats(true);
+
     const res = await fetch(`${API}/api/campaigns`);
     const data = await res.json();
     const campaigns = data.campaigns || [];
@@ -829,7 +972,7 @@ async function loadCampaigns() {
     container.innerHTML = `
       <div class="table-container">
         <table>
-          <thead><tr><th>Campaign</th><th>Type</th><th>Status</th><th>Sent</th><th>Replies</th><th>Created</th></tr></thead>
+          <thead><tr><th>Campaign</th><th>Type</th><th>Status</th><th>Sent</th><th>Opens</th><th>Replies</th><th>Bounced</th><th>Created</th></tr></thead>
           <tbody>
             ${campaigns.map(c => `
               <tr>
@@ -837,7 +980,9 @@ async function loadCampaigns() {
                 <td>${escHtml(c.email_type?.replace('_', ' '))}</td>
                 <td><span class="badge badge-${c.status === 'running' ? 'replied' : c.status === 'completed' ? 'won' : 'new'}">${c.status}</span></td>
                 <td>${c.stats?.emails_sent || 0}</td>
+                <td>${c.stats?.emails_opened || 0}</td>
                 <td>${c.stats?.replies || 0}</td>
+                <td>${c.stats?.bounces || 0}</td>
                 <td style="color:var(--text-muted);">${new Date(c.created_at).toLocaleDateString()}</td>
               </tr>
             `).join('')}
@@ -846,6 +991,26 @@ async function loadCampaigns() {
       </div>`;
   } catch (e) {
     console.error('Campaigns error:', e);
+  }
+}
+
+async function syncCampaignStats(silent = false) {
+  try {
+    const res = await fetch(`${API}/api/campaigns/sync`, { method: 'POST' });
+    const data = await res.json();
+    
+    // Update global analytics cards
+    const el = (id) => document.getElementById(id);
+    if (el('camp-stat-sent')) el('camp-stat-sent').textContent = data.total_sent || 0;
+    if (el('camp-stat-opened')) el('camp-stat-opened').textContent = data.total_opened || 0;
+    if (el('camp-stat-replies')) el('camp-stat-replies').textContent = data.total_replied || 0;
+    if (el('camp-stat-bounced')) el('camp-stat-bounced').textContent = data.total_bounced || 0;
+    if (el('camp-stat-open-rate')) el('camp-stat-open-rate').textContent = data.open_rate || '0%';
+    if (el('camp-stat-reply-rate')) el('camp-stat-reply-rate').textContent = data.reply_rate || '0%';
+
+    if (!silent) showToast('🔄 Stats synced!', 'success');
+  } catch(e) {
+    if (!silent) showToast('❌ Sync failed', 'error');
   }
 }
 
@@ -898,6 +1063,134 @@ async function createCampaign() {
   } catch (e) {
     showToast('❌ Failed to create campaign', 'error');
   }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  REPLIES INBOX
+// ═══════════════════════════════════════════════════════════════
+
+async function loadReplies() {
+  try {
+    const res = await fetch(`${API}/api/replies`);
+    const data = await res.json();
+    const replies = data.replies || [];
+    const stats = data.stats || {};
+
+    // Update stats cards
+    const el = (id) => document.getElementById(id);
+    if (el('reply-stat-total')) el('reply-stat-total').textContent = stats.total_replies || 0;
+    if (el('reply-stat-unread')) el('reply-stat-unread').textContent = stats.unread || 0;
+    if (el('reply-stat-positive')) el('reply-stat-positive').textContent = stats.sentiments?.positive || 0;
+    if (el('reply-stat-negative')) el('reply-stat-negative').textContent = stats.sentiments?.negative || 0;
+
+    // Update sidebar badge
+    const badge = el('replies-unread-badge');
+    if (badge) {
+      badge.textContent = stats.unread || 0;
+      badge.style.display = (stats.unread || 0) > 0 ? '' : 'none';
+    }
+
+    const container = document.getElementById('replies-list');
+    if (!replies.length) {
+      container.innerHTML = `<div class="empty-state">
+        <div class="empty-icon">📭</div>
+        <h3>No replies yet</h3>
+        <p>Click "Scan Inbox" to check for new replies from your leads</p>
+      </div>`;
+      return;
+    }
+
+    container.innerHTML = `<div style="padding:16px; display:flex; flex-direction:column; gap:12px;">
+      ${replies.map(r => {
+        const sentimentColor = r.sentiment === 'positive' ? 'var(--accent-emerald)' :
+                               r.sentiment === 'negative' ? 'var(--accent-rose)' : 'var(--accent-amber)';
+        const sentimentEmoji = r.sentiment === 'positive' ? '😊' :
+                               r.sentiment === 'negative' ? '😞' : '😐';
+        const unreadStyle = !r.read ? 'border-left: 3px solid var(--accent-violet);' : '';
+        const date = new Date(r.received_at).toLocaleString();
+        return `
+          <div class="card" style="margin:0; padding:16px; cursor:pointer; ${unreadStyle}" onclick="toggleReplyBody('${r.id}')">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+              <div>
+                <strong style="color:var(--text-heading);">${escHtml(r.company_name)}</strong>
+                <span style="color:var(--text-muted); font-size:0.85rem;"> — ${escHtml(r.from_name || r.from_email)}</span>
+              </div>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span class="badge" style="background:${sentimentColor}20;color:${sentimentColor};">${sentimentEmoji} ${r.sentiment}</span>
+                ${!r.read ? '<span class="badge" style="background:var(--accent-violet)20;color:var(--accent-violet);">NEW</span>' : ''}
+                <span style="font-size:0.75rem; color:var(--text-muted);">${date}</span>
+              </div>
+            </div>
+            <div style="font-weight:500; color:var(--text-secondary); margin-bottom:4px;">${escHtml(r.subject)}</div>
+            <div id="reply-body-${r.id}" style="display:none; margin-top:12px; padding:12px; background:var(--bg-elevated); border-radius:8px; font-size:0.9rem; color:var(--text-secondary); white-space:pre-wrap;">${escHtml(r.body_preview)}</div>
+          </div>
+        `;
+      }).join('')}
+    </div>`;
+
+  } catch (e) {
+    console.error('Replies error:', e);
+  }
+}
+
+function toggleReplyBody(replyId) {
+  const bodyEl = document.getElementById('reply-body-' + replyId);
+  if (bodyEl) {
+    const isHidden = bodyEl.style.display === 'none';
+    bodyEl.style.display = isHidden ? 'block' : 'none';
+    if (isHidden) {
+      // Let's find the card and remove the NEW badge and unread border so it updates visually
+      const card = bodyEl.closest('.card');
+      let wasUnread = false;
+      if (card) {
+        const newBadge = Array.from(card.querySelectorAll('.badge')).find(b => b.textContent === 'NEW');
+        if (newBadge) {
+          newBadge.remove();
+          wasUnread = true;
+        }
+        card.style.borderLeft = '';
+      }
+      
+      // Mark as read in backend
+      fetch(`${API}/api/replies/${replyId}/read`, { method: 'POST' }).then(() => {
+        // If it was unread, let's just quietly update the stats without re-rendering the list
+        if (wasUnread) {
+          fetch(`${API}/api/replies/stats`).then(res => res.json()).then(stats => {
+            const el = (id) => document.getElementById(id);
+            if (el('reply-stat-unread')) el('reply-stat-unread').textContent = stats.unread || 0;
+            const badge = el('replies-unread-badge');
+            if (badge) {
+              badge.textContent = stats.unread || 0;
+              badge.style.display = (stats.unread || 0) > 0 ? '' : 'none';
+            }
+          });
+        }
+      });
+    }
+  }
+}
+
+async function scanInbox() {
+  const btn = document.getElementById('btn-scan-inbox');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="loading-spinner"></span> Scanning...';
+
+  try {
+    const res = await fetch(`${API}/api/replies/scan`, { method: 'POST' });
+    const data = await res.json();
+
+    if (data.error) {
+      showToast('❌ ' + data.error, 'error');
+    } else {
+      showToast(`📬 Scan complete! ${data.new_replies || 0} new replies found.`, 'success');
+      loadReplies();
+    }
+  } catch(e) {
+    showToast('❌ Scan failed: ' + e.message, 'error');
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = '🔄 Scan Inbox';
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -969,7 +1262,7 @@ async function loadScoring() {
     const topLeads = data.top_10 || [];
     tbody.innerHTML = topLeads.map(lead => {
       const scoreColor = lead.overall >= 80 ? 'var(--accent-emerald)' :
-                         lead.overall >= 60 ? 'var(--accent-amber)' : 'var(--accent-rose)';
+        lead.overall >= 60 ? 'var(--accent-amber)' : 'var(--accent-rose)';
       return `
         <tr>
           <td style="font-weight:600;color:var(--text-heading);">${escHtml(lead.company_name)}</td>
@@ -985,6 +1278,7 @@ async function loadScoring() {
           </td>
           <td><span class="badge badge-grade-${lead.grade}">${lead.grade}</span></td>
           <td style="font-size:0.8rem;color:var(--text-muted);">${escHtml(lead.recommendation || '')}</td>
+          <td style="font-size:0.8rem;color:var(--text-muted);">${escHtml(lead.reason || '')}</td>
         </tr>`;
     }).join('');
 
@@ -1048,8 +1342,8 @@ async function loadCaseStudies() {
         </p>
         <div class="flex gap-2" style="flex-wrap:wrap;">
           ${Object.entries(cs.results || {}).map(([k, v]) =>
-            `<span class="badge badge-replied">${k.replace('_', ' ')}: ${escHtml(v)}</span>`
-          ).join('')}
+      `<span class="badge badge-replied">${k.replace('_', ' ')}: ${escHtml(v)}</span>`
+    ).join('')}
         </div>
       </div>
     `).join('');
@@ -1129,6 +1423,198 @@ function showToast(message, type = 'info') {
 function closeModal(event) {
   if (event && event.target !== document.getElementById('modal-overlay')) return;
   document.getElementById('modal-overlay').classList.remove('active');
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  BIN / TRASH
+// ═══════════════════════════════════════════════════════════════
+
+function confirmDeleteLead(leadId, companyName) {
+  const modal = document.getElementById('modal-content');
+  modal.innerHTML = `
+    <div class="modal-header">
+      <h3>🗑️ Move to Bin</h3>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <div style="color:var(--text-secondary);margin-bottom:16px;">
+      <p>Are you sure you want to move <strong>${companyName}</strong> to the bin?</p>
+      <div class="mt-2" style="padding:12px;background:rgba(244,63,94,0.08);border-radius:8px;">
+        <p style="color:var(--accent-amber);font-size:0.85rem;">⚠️ This will remove the lead from your active list. You can restore it from the Bin later.</p>
+      </div>
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-danger" onclick="deleteLead('${leadId}')">🗑️ Yes, Move to Bin</button>
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+    </div>
+  `;
+  document.getElementById('modal-overlay').classList.add('active');
+}
+
+async function deleteLead(leadId) {
+  closeModal();
+  try {
+    const res = await fetch(`${API}/api/leads/${leadId}/delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast('🗑️ Lead moved to bin', 'success');
+      loadLeads();
+      loadDashboard();
+    } else {
+      showToast(`❌ ${data.error || 'Delete failed'}`, 'error');
+    }
+  } catch (e) {
+    showToast('❌ Delete failed: ' + e.message, 'error');
+  }
+}
+
+async function loadBin() {
+  try {
+    const res = await fetch(`${API}/api/bin`);
+    const data = await res.json();
+    const binLeads = data.leads || [];
+    renderBinTable(binLeads);
+
+    const emptyBtn = document.getElementById('btn-empty-bin');
+    if (emptyBtn) emptyBtn.style.display = binLeads.length > 0 ? 'inline-flex' : 'none';
+  } catch (e) {
+    console.error('Load bin error:', e);
+  }
+}
+
+function renderBinTable(leads) {
+  const tbody = document.getElementById('bin-table-body');
+  if (!leads.length) {
+    tbody.innerHTML = `<tr><td colspan="5"><div class="empty-state">
+      <div class="empty-icon">🗑️</div>
+      <h3>Bin is empty</h3>
+      <p>Deleted leads will appear here</p>
+    </div></td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = leads.map(lead => {
+    const deletedAt = lead.deleted_at ? new Date(lead.deleted_at).toLocaleDateString('en-GB', {
+      day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+    }) : 'Unknown';
+    return `
+      <tr>
+        <td>
+          <div style="font-weight:600;color:var(--text-heading);opacity:0.7;">${escHtml(lead.company_name)}</div>
+          <div style="font-size:0.72rem;color:var(--text-muted);">${lead.contacts?.[0]?.email || 'No email'}</div>
+        </td>
+        <td>${getFlag(lead.country)} ${escHtml(lead.country || 'N/A')}</td>
+        <td>${escHtml(lead.industry || 'N/A')}</td>
+        <td style="font-size:0.8rem;color:var(--text-muted);">${deletedAt}</td>
+        <td>
+          <div class="btn-group">
+            <button class="btn btn-sm btn-success" onclick="restoreLead('${lead.id}')" title="Restore">♻️ Restore</button>
+            <button class="btn btn-sm btn-danger" onclick="confirmPermanentDelete('${lead.id}', '${escHtml(lead.company_name).replace(/'/g, "\\'")}')" title="Delete Forever">❌ Delete</button>
+          </div>
+        </td>
+      </tr>`;
+  }).join('');
+}
+
+async function restoreLead(leadId) {
+  try {
+    const res = await fetch(`${API}/api/bin/${leadId}/restore`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast('♻️ Lead restored!', 'success');
+      loadBin();
+      loadDashboard();
+    } else {
+      showToast(`❌ ${data.error || 'Restore failed'}`, 'error');
+    }
+  } catch (e) {
+    showToast('❌ Restore failed: ' + e.message, 'error');
+  }
+}
+
+function confirmPermanentDelete(leadId, companyName) {
+  const modal = document.getElementById('modal-content');
+  modal.innerHTML = `
+    <div class="modal-header">
+      <h3>❌ Permanently Delete</h3>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <div style="color:var(--text-secondary);margin-bottom:16px;">
+      <p>Are you sure you want to <strong>permanently delete</strong> <strong>${companyName}</strong>?</p>
+      <div class="mt-2" style="padding:12px;background:rgba(244,63,94,0.12);border-radius:8px;">
+        <p style="color:var(--accent-rose);font-size:0.85rem;">🚨 <strong>This cannot be undone.</strong> The lead and all associated data will be permanently erased.</p>
+      </div>
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-danger" onclick="permanentDeleteLead('${leadId}')">🗑️ Yes, Delete Forever</button>
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+    </div>
+  `;
+  document.getElementById('modal-overlay').classList.add('active');
+}
+
+async function permanentDeleteLead(leadId) {
+  closeModal();
+  try {
+    const res = await fetch(`${API}/api/bin/${leadId}`, {
+      method: 'DELETE',
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast('💥 Lead permanently deleted', 'success');
+      loadBin();
+      loadDashboard();
+    } else {
+      showToast(`❌ ${data.error || 'Delete failed'}`, 'error');
+    }
+  } catch (e) {
+    showToast('❌ Delete failed: ' + e.message, 'error');
+  }
+}
+
+function confirmEmptyBin() {
+  const modal = document.getElementById('modal-content');
+  modal.innerHTML = `
+    <div class="modal-header">
+      <h3>🗑️ Empty Entire Bin</h3>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <div style="color:var(--text-secondary);margin-bottom:16px;">
+      <p>Are you sure you want to <strong>permanently delete ALL leads</strong> in the bin?</p>
+      <div class="mt-2" style="padding:12px;background:rgba(244,63,94,0.15);border-radius:8px;">
+        <p style="color:var(--accent-rose);font-size:0.85rem;">🚨 <strong>This cannot be undone.</strong> All leads in the bin will be permanently erased.</p>
+      </div>
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-danger" onclick="emptyBin()">🗑️ Yes, Empty Bin</button>
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+    </div>
+  `;
+  document.getElementById('modal-overlay').classList.add('active');
+}
+
+async function emptyBin() {
+  closeModal();
+  try {
+    const res = await fetch(`${API}/api/bin`, {
+      method: 'DELETE',
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`🗑️ Bin emptied — ${data.deleted} leads permanently deleted`, 'success');
+      loadBin();
+      loadDashboard();
+    } else {
+      showToast('❌ Failed to empty bin', 'error');
+    }
+  } catch (e) {
+    showToast('❌ Failed to empty bin: ' + e.message, 'error');
+  }
 }
 
 // Close modal on escape

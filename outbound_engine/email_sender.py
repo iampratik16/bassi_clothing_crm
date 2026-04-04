@@ -9,6 +9,7 @@ import json
 import os
 import smtplib
 import time
+import uuid
 from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -35,6 +36,9 @@ MAX_EMAILS_PER_DAY = int(os.environ.get("MAX_EMAILS_PER_DAY", "30"))
 EMAIL_DELAY_SECONDS = int(os.environ.get("EMAIL_DELAY_SECONDS", "60"))
 DRY_RUN = os.environ.get("DRY_RUN", "true").lower() == "true"
 
+# Open tracking
+TRACKING_BASE_URL = os.environ.get("TRACKING_BASE_URL", "http://127.0.0.1:8000")
+
 
 UNSUBSCRIBE_HTML = """
 <br/><br/>
@@ -57,6 +61,7 @@ EMAIL_HTML_TEMPLATE = """<!DOCTYPE html>
              font-size:14px;line-height:1.7;color:#333;max-width:600px;margin:0 auto;padding:20px;">
 {body_html}
 {unsubscribe}
+{tracking_pixel}
 </body>
 </html>
 """
@@ -85,15 +90,21 @@ def _text_to_html(text: str) -> str:
     return "\n".join(html_parts)
 
 
-def _build_html_email(body_text: str) -> str:
-    """Build full HTML email with unsubscribe footer."""
+def _build_html_email(body_text: str, send_id: str = "") -> str:
+    """Build full HTML email with unsubscribe footer and tracking pixel."""
     body_html = _text_to_html(body_text)
     unsubscribe = UNSUBSCRIBE_HTML.format(
         sender_email=SENDER_EMAIL,
         company_name=SENDER_NAME,
         company_address="Bassi Clothing Manufacturing",
     )
-    return EMAIL_HTML_TEMPLATE.format(body_html=body_html, unsubscribe=unsubscribe)
+    tracking_pixel = ""
+    if send_id:
+        pixel_url = f"{TRACKING_BASE_URL}/track/open/{send_id}"
+        tracking_pixel = f'<img src="{pixel_url}" width="1" height="1" style="display:none;" alt="" />'
+    return EMAIL_HTML_TEMPLATE.format(
+        body_html=body_html, unsubscribe=unsubscribe, tracking_pixel=tracking_pixel
+    )
 
 
 def _get_today_send_count() -> int:
@@ -120,6 +131,7 @@ def _log_send(email_data: Dict, status: str, error: str = ""):
 
     logs.append({
         "timestamp": datetime.now().isoformat(),
+        "send_id": email_data.get("send_id", ""),
         "to_email": email_data.get("to_email", ""),
         "to_name": email_data.get("contact_name", ""),
         "company": email_data.get("company_name", ""),
@@ -149,10 +161,13 @@ def send_email(
     if not email_data:
         email_data = {}
 
+    # Generate a unique send_id for open tracking
+    send_id = str(uuid.uuid4())
     email_data.update({
         "to_email": to_email,
         "contact_name": to_name,
         "subject": subject,
+        "send_id": send_id,
     })
 
     # Check daily limit
@@ -171,8 +186,8 @@ def send_email(
         _log_send(email_data, "skipped", "Opted out")
         return {"status": "skipped", "reason": "Contact has opted out (GDPR)"}
 
-    # Build email
-    html_body = _build_html_email(body)
+    # Build email with tracking pixel
+    html_body = _build_html_email(body, send_id=send_id)
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject

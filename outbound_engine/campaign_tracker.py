@@ -237,3 +237,102 @@ def get_send_log_summary(days: int = 7) -> Dict:
         "total_sent": sum(d["sent"] for d in daily_stats.values()),
         "total_dry_run": sum(d["dry_run"] for d in daily_stats.values()),
     }
+
+
+def sync_stats_from_logs() -> Dict:
+    """
+    Auto-sync campaign stats by scanning send logs, opens, and replies.
+    Updates campaign records and returns a global summary.
+    """
+    # --- Gather all send logs ---
+    all_logs = []
+    if SEND_LOG_DIR.exists():
+        for log_file in sorted(SEND_LOG_DIR.glob("*.json")):
+            try:
+                with open(log_file, "r") as f:
+                    all_logs.extend(json.load(f))
+            except Exception:
+                pass
+
+    # --- Gather open events ---
+    opens_file = CAMPAIGNS_FILE.parent / "email_opens.json"
+    opens = []
+    if opens_file.exists():
+        try:
+            with open(opens_file, "r") as f:
+                opens = json.load(f)
+        except Exception:
+            pass
+
+    opened_send_ids = {o.get("send_id") for o in opens if o.get("send_id")}
+
+    # --- Gather replies ---
+    replies_file = CAMPAIGNS_FILE.parent / "replies.json"
+    replies = []
+    if replies_file.exists():
+        try:
+            with open(replies_file, "r") as f:
+                replies = json.load(f)
+        except Exception:
+            pass
+
+    reply_emails = {r.get("from_email", "").lower() for r in replies}
+
+    # --- Compute global stats ---
+    total_sent = 0
+    total_bounced = 0
+    total_errors = 0
+    total_opened = 0
+    total_replied = 0
+
+    for log in all_logs:
+        status = log.get("status", "")
+        if status == "sent":
+            total_sent += 1
+            send_id = log.get("send_id", "")
+            if send_id and send_id in opened_send_ids:
+                total_opened += 1
+            to_email = log.get("to_email", "").lower()
+            if to_email and to_email in reply_emails:
+                total_replied += 1
+        elif status == "bounced":
+            total_bounced += 1
+        elif status == "error":
+            total_errors += 1
+
+    # --- Update campaign stats if campaigns exist ---
+    campaigns = _load_campaigns()
+    for campaign in campaigns:
+        campaign_id = campaign.get("id", "")
+        campaign_logs = [l for l in all_logs if l.get("campaign_id") == campaign_id]
+        campaign_sent = sum(1 for l in campaign_logs if l.get("status") == "sent")
+        campaign_bounced = sum(1 for l in campaign_logs if l.get("status") == "bounced")
+
+        campaign_send_ids = {l.get("send_id") for l in campaign_logs if l.get("send_id")}
+        campaign_opened = sum(1 for sid in campaign_send_ids if sid in opened_send_ids)
+
+        campaign_to_emails = {l.get("to_email", "").lower() for l in campaign_logs if l.get("status") == "sent"}
+        campaign_replied = sum(1 for em in campaign_to_emails if em in reply_emails)
+
+        campaign["stats"]["emails_sent"] = campaign_sent
+        campaign["stats"]["bounces"] = campaign_bounced
+        campaign["stats"]["emails_opened"] = campaign_opened
+        campaign["stats"]["replies"] = campaign_replied
+
+    if campaigns:
+        _save_campaigns(campaigns)
+
+    safe_sent = max(total_sent, 1)
+
+    return {
+        "synced": True,
+        "total_logs": len(all_logs),
+        "total_sent": total_sent,
+        "total_bounced": total_bounced,
+        "total_errors": total_errors,
+        "total_opened": total_opened,
+        "total_replied": total_replied,
+        "open_rate": f"{(total_opened / safe_sent * 100):.1f}%",
+        "reply_rate": f"{(total_replied / safe_sent * 100):.1f}%",
+        "bounce_rate": f"{(total_bounced / safe_sent * 100):.1f}%",
+    }

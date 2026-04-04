@@ -21,7 +21,7 @@ OUTPUT_DIR = BASE_DIR / "output" / "emails"
 
 # Load environment
 from dotenv import load_dotenv
-load_dotenv(BASE_DIR / ".env")
+load_dotenv(BASE_DIR / ".env", override=True)
 
 
 # Try to import Google GenAI
@@ -203,6 +203,7 @@ def generate_email(
     lead: Dict,
     email_type: str = "cold_outreach",
     custom_prompt: str = "",
+    generation_method: str = "ai",
 ) -> Dict:
     """
     Generate a personalized email for a lead using Gemini Pro.
@@ -223,11 +224,17 @@ def generate_email(
         "season": _get_season(),
     }
 
+    if generation_method == "template":
+        return _generate_from_template(config, context, email_type)
+
     client = _get_gemini_client()
     if client:
         return _generate_with_gemini(client, config, context, email_type, custom_prompt)
     else:
-        return _generate_from_template(config, context, email_type)
+        return {
+            "error": "Gemini API key is not configured or invalid.",
+            "ai_generated": False
+        }
 
 
 def _generate_with_gemini(
@@ -326,10 +333,9 @@ Use escaped newlines (\\n) inside string values. Example format:
         }
     except Exception as e:
         return {
-            "error": str(e),
+            "error": f"Gemini API Error: {str(e)}",
             "email_type": email_type,
             "ai_generated": False,
-            **_generate_from_template(config, context, email_type),
         }
 
 

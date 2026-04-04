@@ -925,3 +925,40 @@ tbody tr:hover {
   color: var(--text-muted);
   font-weight: 500;
 }
+
+/* ─── Bin / Trash ─── */
+.btn-danger.btn-sm {
+  background: rgba(244, 63, 94, 0.12);
+  color: var(--accent-rose);
+  border: 1px solid rgba(244, 63, 94, 0.2);
+}
+
+.btn-danger.btn-sm:hover {
+  background: rgba(244, 63, 94, 0.25);
+  transform: translateY(-1px);
+}
+
+.btn-success.btn-sm {
+  background: rgba(16, 185, 129, 0.12);
+  color: var(--accent-emerald);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.btn-success.btn-sm:hover {
+  background: rgba(16, 185, 129, 0.25);
+  transform: translateY(-1px);
+}
+
+#page-bin tbody tr {
+  opacity: 0.85;
+  transition: var(--transition);
+}
+
+#page-bin tbody tr:hover {
+  opacity: 1;
+  background: rgba(244, 63, 94, 0.04);
+}
+
+.badge[style*="accent-rose"] {
+  animation: pulse 2s ease infinite;
+}
