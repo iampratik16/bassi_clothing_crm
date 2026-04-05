@@ -280,6 +280,7 @@ def sync_stats_from_logs() -> Dict:
 
     # --- Compute global stats ---
     total_sent = 0
+    total_bulk_sent = 0
     total_bounced = 0
     total_errors = 0
     total_opened = 0
@@ -289,6 +290,8 @@ def sync_stats_from_logs() -> Dict:
         status = log.get("status", "")
         if status == "sent":
             total_sent += 1
+            if log.get("is_bulk"):
+                total_bulk_sent += 1
             send_id = log.get("send_id", "")
             if send_id and send_id in opened_send_ids:
                 total_opened += 1
@@ -328,6 +331,7 @@ def sync_stats_from_logs() -> Dict:
         "synced": True,
         "total_logs": len(all_logs),
         "total_sent": total_sent,
+        "total_bulk_sent": total_bulk_sent,
         "total_bounced": total_bounced,
         "total_errors": total_errors,
         "total_opened": total_opened,

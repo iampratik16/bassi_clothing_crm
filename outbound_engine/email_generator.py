@@ -228,13 +228,18 @@ def generate_email(
         return _generate_from_template(config, context, email_type)
 
     client = _get_gemini_client()
-    if client:
-        return _generate_with_gemini(client, config, context, email_type, custom_prompt)
-    else:
-        return {
-            "error": "Gemini API key is not configured or invalid.",
-            "ai_generated": False
-        }
+    if not client:
+        fallback = _generate_from_template(config, context, email_type)
+        fallback["error"] = "Gemini API key is not configured or invalid."
+        return fallback
+
+    result = _generate_with_gemini(client, config, context, email_type, custom_prompt)
+    if result.get("error"):
+        fallback = _generate_from_template(config, context, email_type)
+        fallback["error"] = result["error"]
+        return fallback
+
+    return result
 
 
 def _generate_with_gemini(
@@ -312,8 +317,22 @@ Use escaped newlines (\\n) inside string values. Example format:
             
             if subj_match:
                 body_text = body_match.group(1).strip() if body_match else ""
+                
+                # Fix unicode escapes (e.g. \u2019 -> ')
+                try:
+                    body_text = body_text.encode('utf-8').decode('unicode_escape')
+                except Exception:
+                    pass
+                    
                 body_text = body_text.replace('\\n', '\n').replace('\\"', '"')
-                result = {"subject": subj_match.group(1).strip(), "body": body_text}
+                
+                subj_text = subj_match.group(1).strip()
+                try:
+                    subj_text = subj_text.encode('utf-8').decode('unicode_escape')
+                except Exception:
+                    pass
+                    
+                result = {"subject": subj_text, "body": body_text}
             else:
                 result = None
 

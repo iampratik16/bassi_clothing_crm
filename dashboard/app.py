@@ -327,7 +327,13 @@ async def api_generate_batch(request: Request):
     for lid in lead_ids:
         lead = get_lead(lid)
         if lead:
+            contact = next((c for c in lead.get("contacts", []) if c.get("email")), None)
+            if not contact:
+                continue
             email = await asyncio.to_thread(generate_email, lead, email_type, generation_method=generation_method)
+            email["lead_id"] = lead.get("id", "")
+            email["to_email"] = contact["email"]
+            email["to_name"] = contact.get("name", "")
             email["quality_score"] = score_email(email)
             emails.append(email)
 
@@ -345,6 +351,7 @@ async def api_generate_all_emails(request: Request):
     from outbound_engine.email_generator import generate_email, score_email
 
     all_leads = get_all_leads()
+
     leads_with_email = [
         l for l in all_leads
         if any(c.get("email") for c in l.get("contacts", []))
@@ -354,6 +361,7 @@ async def api_generate_all_emails(request: Request):
         return {"error": "No leads with email addresses found. Upload emails first.", "emails": [], "count": 0}
 
     emails = []
+    new_count = 0
     for lead in leads_with_email:
         contact = next((c for c in lead.get("contacts", []) if c.get("email")), None)
         if not contact:
@@ -365,6 +373,7 @@ async def api_generate_all_emails(request: Request):
         email["to_name"] = contact.get("name", "")
         email["quality_score"] = score_email(email)
         emails.append(email)
+        new_count += 1
 
     # Save generated emails
     _save_generated_emails(emails)
@@ -372,7 +381,7 @@ async def api_generate_all_emails(request: Request):
     return {
         "emails": emails,
         "count": len(emails),
-        "message": f"Generated {len(emails)} personalized emails using Gemini Pro",
+        "message": f"Generated {new_count} new personalized emails using Gemini Pro",
     }
 
 
@@ -381,6 +390,15 @@ async def api_get_generated_emails():
     """Get all previously generated emails."""
     emails = _load_generated_emails()
     return {"emails": emails, "count": len(emails)}
+
+
+@app.post("/api/emails/save-generated")
+async def api_save_generated_emails(request: Request):
+    """Save generated emails to disk (used when merging from Leads page)."""
+    body = await request.json()
+    emails = body.get("emails", [])
+    _save_generated_emails(emails)
+    return {"success": True, "count": len(emails)}
 
 
 @app.post("/api/emails/send")
@@ -413,6 +431,7 @@ async def api_send_all_emails(request: Request):
     results = {"sent": 0, "dry_run": 0, "skipped": 0, "errors": 0, "details": []}
 
     for i, email_data in enumerate(emails):
+        email_data["is_bulk"] = True
         to_email = email_data.get("to_email", "")
         to_name = email_data.get("to_name", email_data.get("contact_name", ""))
         subject = email_data.get("subject", "")
@@ -566,6 +585,10 @@ async def track_open(send_id: str, request: Request):
             OPENS_FILE.parent.mkdir(parents=True, exist_ok=True)
             with open(OPENS_FILE, "w") as f:
                 json.dump(opens, f, indent=2)
+
+            # Automatically sync campaign stats to reflect the new open
+            from outbound_engine.campaign_tracker import sync_stats_from_logs
+            sync_stats_from_logs()
     except Exception:
         pass  # Never break email rendering
 

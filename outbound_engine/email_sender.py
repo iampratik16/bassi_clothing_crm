@@ -141,6 +141,7 @@ def _log_send(email_data: Dict, status: str, error: str = ""):
         "status": status,
         "error": error,
         "dry_run": DRY_RUN,
+        "is_bulk": email_data.get("is_bulk", False),
     })
 
     with open(log_file, "w") as f:

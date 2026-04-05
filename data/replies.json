@@ -1,5 +1,19 @@
 [
   {
+    "id": "reply_20260405232926_0",
+    "message_id": "\r\n <PN3P287MB00813DE5BAFCCEF86DD398A3C65CA@PN3P287MB0081.INDP287.PROD.OUTLOOK.COM>",
+    "from_email": "vaibhav@radlabs.tech",
+    "from_name": "Vaibhav Chetri",
+    "lead_id": "c0291d82",
+    "company_name": "RadLabs Testing Co",
+    "subject": "Re: RadLabs Testing Co × Bassi Clothing — Reliable Garment Manufacturing for India",
+    "body_preview": "please stop sending mails\r\n\r\nGet Outlook for iOS<https://aka.ms/o0ukef>\r\n________________________________\r\nFrom: Bassi Clothing <vaibhav@bassiclothing.in>\r\nSent: Sunday, April 5, 2026 9:58:21 PM\r\nTo: Vaibhav Chetri <vaibhav@radlabs.tech>\r\nSubject: RadLabs Testing Co × Bassi Clothing — Reliable Garment Manufacturing for India\r\n\r\n\r\nHi Vaibhav Chetri,\r\n\r\nI came across RadLabs Testing Co and was impressed by your brand's approach to fashion in the India market.\r\n\r\nMany brands like yours face challen",
+    "received_at": "2026-04-05T17:59:00+00:00",
+    "scanned_at": "2026-04-05T23:29:26.193641",
+    "read": true,
+    "sentiment": "negative"
+  },
+  {
     "id": "reply_20260404145218_0",
     "message_id": "\r\n <PN0P287MB0445B004B1F14FEA78890773B05EA@PN0P287MB0445.INDP287.PROD.OUTLOOK.COM>",
     "from_email": "pratik@radlabs.tech",
@@ -80,7 +94,7 @@
     "body_preview": "--_000_PN0P287MB04453788C7B4360477E6AFC0B05FAPN0P287MB0445INDP_\r\nContent-Type: text/plain; charset=\"Windows-1252\"\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\nDear Bassi,\r\n\r\nCan we have a meeting to make a decision on sourcing and prices and the sto=\r\nck piles that you can deliver also send me a sample of hoodies to my office=\r\n address.\r\n\r\nRegards,\r\nPratik\r\n________________________________\r\nFrom: Bassi Clothing <vaibhav@bassiclothing.in>\r\nSent: 04 April 2026 12:27\r\nTo: Pratik Bhattacharjee <",
     "received_at": "2026-04-04T08:51:44+00:00",
     "scanned_at": "2026-04-04T14:52:22.280121",
-    "read": false,
+    "read": true,
     "sentiment": "positive"
   }
 ]

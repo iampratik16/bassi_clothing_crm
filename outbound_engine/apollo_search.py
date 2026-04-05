@@ -127,6 +127,16 @@ def search_apollo_leads(page: int = 1, per_page: int = 100) -> Dict:
                 timeout=30,
             )
 
+        if response.status_code == 403 and "API_INACCESSIBLE" in response.text:
+            # Fallback to organizations search for free API plans
+            params.pop("person_titles", None)
+            response = requests.post(
+                f"{APOLLO_API_BASE}/organizations/search",
+                headers=headers,
+                json=params,
+                timeout=30,
+            )
+
         if response.status_code != 200:
             return {
                 "error": f"Apollo API returned {response.status_code}: {response.text[:500]}",
@@ -135,12 +145,14 @@ def search_apollo_leads(page: int = 1, per_page: int = 100) -> Dict:
 
         data = response.json()
         people = data.get("people", [])
+        organizations = data.get("organizations", [])
         total = data.get("pagination", {}).get("total_entries", 0)
 
         # Parse results into our lead format
         leads = []
         seen_companies = set()
 
+        # Handle people response
         for person in people:
             org = person.get("organization", {}) or {}
             company_name = org.get("name", "") or person.get("organization_name", "")
@@ -168,6 +180,43 @@ def search_apollo_leads(page: int = 1, per_page: int = 100) -> Dict:
             }
 
             # Try to get revenue from raw cents
+            if org.get("annual_revenue"):
+                rev = org["annual_revenue"]
+                if isinstance(rev, (int, float)) and rev > 0:
+                    if rev >= 1_000_000_000:
+                        lead["revenue"] = f"${rev/1_000_000_000:.1f}B"
+                    elif rev >= 1_000_000:
+                        lead["revenue"] = f"${rev/1_000_000:.1f}M"
+                    else:
+                        lead["revenue"] = f"${rev/1_000:.0f}K"
+
+            leads.append(lead)
+
+        # Handle organizations response (fallback)
+        for org in organizations:
+            company_name = org.get("name", "")
+            if not company_name or company_name.lower() in seen_companies:
+                continue
+            seen_companies.add(company_name.lower())
+
+            lead = {
+                "company_name": company_name,
+                "person": "",  # Missing in org search
+                "email": "", 
+                "primary_designation": "", # Missing in org search
+                "website": org.get("website_url", ""),
+                "about": org.get("short_description", "") or "",
+                "company_phone": org.get("phone", "") or "",
+                "company_linkedin": org.get("linkedin_url", "") or "",
+                "industry": org.get("industry", "") or "",
+                "employees": org.get("estimated_num_employees", "") or "",
+                "revenue": "",
+                "founded": org.get("founded_year", "") or "",
+                "country": org.get("country", "") or "",
+                "primary_phone": "",
+                "primary_linkedin": "",
+            }
+
             if org.get("annual_revenue"):
                 rev = org["annual_revenue"]
                 if isinstance(rev, (int, float)) and rev > 0:

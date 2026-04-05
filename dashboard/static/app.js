@@ -10,6 +10,8 @@ let allLeads = [];
 let generatedEmails = [];
 let lastGeneratedEmail = null;
 let currentPage = 'dashboard';
+let selectedBulkEmails = new Set();
+let selectedLeadIds = new Set();
 
 // ─── Init ───
 document.addEventListener('DOMContentLoaded', () => {
@@ -66,8 +68,25 @@ async function loadDashboard() {
 
     document.getElementById('stat-total-leads').textContent = stats.total_leads || 0;
     document.getElementById('stat-with-email').textContent = stats.with_email || 0;
-    document.getElementById('stat-contacted').textContent = stats.by_stage?.contacted || 0;
-    document.getElementById('stat-replied').textContent = stats.by_stage?.replied || 0;
+    
+    // Fetch actual total sent emails across all logs to sync "Contacted"
+    try {
+      const syncRes = await fetch(`${API}/api/campaigns/sync`, { method: 'POST' });
+      const syncStats = await syncRes.json();
+      document.getElementById('stat-contacted').textContent = syncStats.total_sent || 0;
+    } catch (e) {
+      document.getElementById('stat-contacted').textContent = stats.by_stage?.contacted || 0;
+    }
+    
+    // Fetch actual total replies to keep dashboard synced with Replies tab
+    try {
+      const repliesRes = await fetch(`${API}/api/replies/stats`);
+      const repliesStats = await repliesRes.json();
+      document.getElementById('stat-replied').textContent = repliesStats.total_replies || 0;
+    } catch (e) {
+      document.getElementById('stat-replied').textContent = stats.by_stage?.replied || 0;
+    }
+    
     document.getElementById('stat-meetings').textContent = stats.by_stage?.meeting_booked || 0;
     document.getElementById('stat-in-bin').textContent = stats.in_bin || 0;
 
@@ -346,8 +365,11 @@ async function loadBulkEmail() {
     generatedEmails = data.emails || [];
 
     if (generatedEmails.length > 0) {
+      // Auto-select all on first load
+      selectedBulkEmails = new Set(generatedEmails.map((_, i) => i));
       renderBulkEmails(generatedEmails);
-      document.getElementById('btn-send-all').style.display = 'inline-flex';
+    } else {
+      document.getElementById('bulk-selection-toolbar').style.display = 'none';
     }
   } catch (e) {
     console.error('Load bulk email error:', e);
@@ -388,13 +410,19 @@ async function generateAllEmails() {
     }
 
     generatedEmails = data.emails || [];
+    selectedBulkEmails = new Set(generatedEmails.map((_, i) => i));
     document.getElementById('bulk-progress-bar').style.width = '100%';
+
+    const hasErrors = generatedEmails.some(e => e.error);
 
     setTimeout(() => {
       progress.style.display = 'none';
       renderBulkEmails(generatedEmails);
-      document.getElementById('btn-send-all').style.display = 'inline-flex';
-      showToast(`✅ ${data.message || `Generated ${generatedEmails.length} emails!`}`, 'success');
+      if (hasErrors) {
+        showToast(`⚠️ API Quota Reached. Generated ${generatedEmails.length} emails, but used fallbacks for some.`, 'error');
+      } else {
+        showToast(`✅ ${data.message || `Generated ${generatedEmails.length} emails!`}`, 'success');
+      }
     }, 500);
 
   } catch (e) {
@@ -408,6 +436,7 @@ async function generateAllEmails() {
 
 function renderBulkEmails(emails) {
   const container = document.getElementById('bulk-email-list');
+  const toolbar = document.getElementById('bulk-selection-toolbar');
 
   if (!emails.length) {
     container.innerHTML = `<div class="empty-state">
@@ -415,8 +444,13 @@ function renderBulkEmails(emails) {
       <h3>No emails generated yet</h3>
       <p>Click "Generate All Emails" to create personalized emails for all leads with email addresses</p>
     </div>`;
+    toolbar.style.display = 'none';
     return;
   }
+
+  // Show toolbar
+  toolbar.style.display = 'block';
+  updateBulkSelectionCount();
 
   container.innerHTML = `
     <div class="card">
@@ -429,27 +463,100 @@ function renderBulkEmails(emails) {
     const quality = email.quality_score || {};
     const scoreColor = (quality.overall || 0) >= 80 ? 'var(--accent-emerald)' :
       (quality.overall || 0) >= 60 ? 'var(--accent-amber)' : 'var(--accent-rose)';
+    const isSelected = selectedBulkEmails.has(i);
     return `
-            <div class="bulk-email-card" style="cursor:pointer; position:relative; padding-bottom: 30px;" onclick="openBulkEditModal(${i})">
+            <div class="bulk-email-card ${isSelected ? 'bulk-email-selected' : ''}" style="cursor:pointer; position:relative; padding-bottom: 30px;">
+              <div style="position:absolute; top:12px; left:14px; z-index:10;" onclick="event.stopPropagation();">
+                <input type="checkbox" class="bulk-email-checkbox" data-index="${i}" ${isSelected ? 'checked' : ''} onchange="toggleBulkEmailSelect(${i}, this.checked)" style="width:18px; height:18px; cursor:pointer; accent-color: var(--accent-indigo);">
+              </div>
+              <button class="btn btn-sm btn-danger" style="position:absolute; top:12px; right:15px; padding:4px 8px; font-size:0.8rem; z-index:10;" onclick="event.stopPropagation(); removeBulkEmail(${i})" title="Remove Company">🗑️</button>
               <div style="position:absolute; bottom:12px; right:15px; font-size:0.75rem; color:var(--text-muted);">
                 ✏️ Click to Edit
               </div>
-              <div class="bulk-email-header">
+              <div class="bulk-email-header" style="padding-left: 30px;" onclick="openBulkEditModal(${i})">
                 <div>
                   <div class="bulk-email-company">${escHtml(email.company_name || 'Unknown')}</div>
                   <div class="bulk-email-to">${escHtml(email.to_email || email.contact_name || 'No email')}</div>
                 </div>
-                <span class="badge" style="background:${scoreColor}20;color:${scoreColor};">${quality.overall || '-'}</span>
               </div>
-              <div class="bulk-email-subject">📧 ${escHtml(email.subject || '')}</div>
-              <div class="bulk-email-body">${escHtml((email.body || '').substring(0, 150))}...</div>
-              <div class="bulk-email-meta">
-                ${email.ai_generated ? '🤖 Gemini Pro' : '📝 Template'} • ${email.model || 'N/A'}
+              <div onclick="openBulkEditModal(${i})">
+                <div class="bulk-email-subject">📧 ${escHtml(email.subject || '')}</div>
+                <div class="bulk-email-body">${escHtml((email.body || '').substring(0, 150))}...</div>
+                <div class="bulk-email-meta">
+                  ${email.ai_generated ? '🤖 Gemini Pro' : '📝 Template'} • ${email.model || 'N/A'}
+                </div>
               </div>
             </div>`;
   }).join('')}
       </div>
     </div>`;
+}
+
+function toggleBulkEmailSelect(index, checked) {
+  if (checked) {
+    selectedBulkEmails.add(index);
+  } else {
+    selectedBulkEmails.delete(index);
+  }
+  // Update card visual
+  const cards = document.querySelectorAll('.bulk-email-card');
+  if (cards[index]) {
+    cards[index].classList.toggle('bulk-email-selected', checked);
+  }
+  updateBulkSelectionCount();
+}
+
+function toggleSelectAllBulk() {
+  if (selectedBulkEmails.size === generatedEmails.length) {
+    // All are selected, so deselect all
+    deselectAllBulk();
+  } else {
+    // Select all
+    selectedBulkEmails = new Set(generatedEmails.map((_, i) => i));
+    document.querySelectorAll('.bulk-email-checkbox').forEach(cb => { cb.checked = true; });
+    document.querySelectorAll('.bulk-email-card').forEach(card => card.classList.add('bulk-email-selected'));
+    updateBulkSelectionCount();
+  }
+}
+
+function deselectAllBulk() {
+  selectedBulkEmails.clear();
+  document.querySelectorAll('.bulk-email-checkbox').forEach(cb => { cb.checked = false; });
+  document.querySelectorAll('.bulk-email-card').forEach(card => card.classList.remove('bulk-email-selected'));
+  updateBulkSelectionCount();
+}
+
+function removeSelectedBulk() {
+  if (selectedBulkEmails.size === 0) {
+    showToast('⚠️ No emails selected to remove', 'error');
+    return;
+  }
+  const count = selectedBulkEmails.size;
+  // Remove in reverse order to maintain indices
+  const indices = [...selectedBulkEmails].sort((a, b) => b - a);
+  indices.forEach(i => generatedEmails.splice(i, 1));
+  selectedBulkEmails.clear();
+  renderBulkEmails(generatedEmails);
+  
+  // Persist to backend
+  fetch(`${API}/api/emails/save-generated`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ emails: generatedEmails })
+  }).catch(e => console.error('Save generated err:', e));
+
+  showToast(`🗑️ Removed ${count} email(s) from bulk send`, 'info');
+}
+
+function updateBulkSelectionCount() {
+  const countEl = document.getElementById('bulk-selection-count');
+  if (countEl) {
+    countEl.textContent = `${selectedBulkEmails.size} of ${generatedEmails.length} selected`;
+  }
+  const btn = document.getElementById('btn-select-all-bulk');
+  if (btn) {
+    btn.textContent = selectedBulkEmails.size === generatedEmails.length ? '☐ Deselect All' : '☑️ Select All';
+  }
 }
 
 function openBulkEditModal(index) {
@@ -465,6 +572,30 @@ function closeBulkEditModal() {
   document.getElementById('bulk-edit-modal').style.display = 'none';
 }
 
+function removeBulkEmail(index) {
+  if (index >= 0 && index < generatedEmails.length) {
+    const removed = generatedEmails.splice(index, 1)[0];
+    selectedBulkEmails.delete(index);
+    // Reindex selections
+    const newSet = new Set();
+    selectedBulkEmails.forEach(i => {
+      if (i < index) newSet.add(i);
+      else if (i > index) newSet.add(i - 1);
+    });
+    selectedBulkEmails = newSet;
+    renderBulkEmails(generatedEmails);
+
+    // Persist to backend
+    fetch(`${API}/api/emails/save-generated`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ emails: generatedEmails })
+    }).catch(e => console.error('Save generated err:', e));
+
+    showToast(`🗑️ Removed ${removed.company_name} from bulk send`, 'info');
+  }
+}
+
 function saveBulkEmailEdit() {
   const index = document.getElementById('bulk-edit-index').value;
   const newSubject = document.getElementById('bulk-edit-subject').value;
@@ -474,45 +605,96 @@ function saveBulkEmailEdit() {
     generatedEmails[index].body = newBody;
     renderBulkEmails(generatedEmails);
     closeBulkEditModal();
+
+    // Persist to backend
+    fetch(`${API}/api/emails/save-generated`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ emails: generatedEmails })
+    }).catch(e => console.error('Save generated err:', e));
+
     showToast('💾 Email edit saved locally!', 'success');
   }
 }
 
-function confirmSendAllEmails() {
+async function confirmSendSelectedEmails() {
+  if (selectedBulkEmails.size === 0) {
+    showToast('⚠️ No emails selected. Check the boxes next to emails you want to send.', 'error');
+    return;
+  }
+  const count = selectedBulkEmails.size;
+  
+  // Fetch campaigns for selection
+  let campaignsOptions = '<option value="">-- No Campaign --</option>';
+  try {
+    const res = await fetch(`${API}/api/campaigns`);
+    const data = await res.json();
+    if (data.campaigns && data.campaigns.length > 0) {
+      campaignsOptions += data.campaigns.map(c => `<option value="${c.id}">${escHtml(c.name)}</option>`).join('');
+    }
+  } catch (e) {
+    console.error("Failed to load campaigns for send modal", e);
+  }
+
   const modal = document.getElementById('modal-content');
   modal.innerHTML = `
     <div class="modal-header">
-      <h3>📨 Confirm Send All Emails</h3>
+      <h3>📨 Confirm Send Selected Emails</h3>
       <button class="modal-close" onclick="closeModal()">&times;</button>
     </div>
     <div style="color:var(--text-secondary);margin-bottom:16px;">
-      <p>You're about to send <strong>${generatedEmails.length} personalized emails</strong> from <strong>vaibhav@bassiclothing.in</strong>.</p>
+      <p>You're about to send <strong>${count} selected email(s)</strong> from <strong>vaibhav@bassiclothing.in</strong>.</p>
+      
+      <div class="form-group" style="margin-top:16px;">
+        <label class="form-label" style="font-weight:bold; color:var(--text-heading);">Assign to Campaign</label>
+        <select class="form-select" id="bulk-send-campaign-select">
+          ${campaignsOptions}
+        </select>
+        <div style="font-size:0.8rem;color:var(--text-muted);margin-top:4px;">Select a campaign to automatically track opens and replies.</div>
+      </div>
+
       <div class="mt-2" style="padding:12px;background:rgba(245,158,11,0.1);border-radius:8px;">
-        <p style="color:var(--accent-amber);">⚠️ <strong>Note:</strong> Emails will be sent with rate limiting (${generatedEmails.length > 30 ? 'max 30/day' : 'all at once'}). DRY_RUN mode will log but not actually send.</p>
+        <p style="color:var(--accent-amber);">⚠️ <strong>Note:</strong> Emails will be sent with rate limiting (${count > 30 ? 'max 30/day' : 'all at once'}). DRY_RUN mode will log but not actually send.</p>
+      </div>
+      <div class="mt-2" style="padding:12px;background:rgba(99,102,241,0.08);border-radius:8px;">
+        <p style="font-size:0.85rem;"><strong>📋 Selected companies:</strong></p>
+        <ul style="margin-top:8px; padding-left:20px; font-size:0.82rem; color:var(--text-muted); max-height:200px; overflow-y:auto;">
+          ${[...selectedBulkEmails].map(i => `<li>${escHtml(generatedEmails[i]?.company_name || 'Unknown')} — ${escHtml(generatedEmails[i]?.to_email || 'No email')}</li>`).join('')}
+        </ul>
       </div>
     </div>
     <div class="btn-group">
-      <button class="btn btn-success" onclick="sendAllEmails()">✅ Yes, Send All</button>
+      <button class="btn btn-success" onclick="sendSelectedEmails()">✅ Yes, Send ${count} Email(s)</button>
       <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
     </div>
   `;
   document.getElementById('modal-overlay').classList.add('active');
 }
 
-async function sendAllEmails() {
+async function sendSelectedEmails() {
+  const campaignId = document.getElementById('bulk-send-campaign-select')?.value || "";
+
   closeModal();
 
-  const btn = document.getElementById('btn-send-all');
+  const btn = document.getElementById('btn-send-selected');
   btn.disabled = true;
   btn.innerHTML = '<span class="loading-spinner"></span> Sending...';
 
-  showToast('📨 Sending emails...', 'info');
+  const emailsToSend = [...selectedBulkEmails].map(i => {
+    let email = generatedEmails[i];
+    if (campaignId) {
+      email.campaign_id = campaignId;
+    }
+    return email;
+  }).filter(Boolean);
+
+  showToast(`📨 Sending ${emailsToSend.length} emails...`, 'info');
 
   try {
     const res = await fetch(`${API}/api/emails/send-all`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ emails: generatedEmails }),
+      body: JSON.stringify({ emails: emailsToSend }),
     });
     const data = await res.json();
 
@@ -572,7 +754,7 @@ async function sendAllEmails() {
   }
 
   btn.disabled = false;
-  btn.innerHTML = '📨 Send All Emails';
+  btn.innerHTML = '📨 Send Selected';
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -584,7 +766,9 @@ async function loadLeads() {
     const res = await fetch(`${API}/api/leads`);
     const data = await res.json();
     allLeads = data.leads || [];
+    selectedLeadIds.clear();
     renderLeadsTable(allLeads);
+    updateLeadSelectionUI();
   } catch (e) {
     console.error('Load leads error:', e);
   }
@@ -593,7 +777,7 @@ async function loadLeads() {
 function renderLeadsTable(leads) {
   const tbody = document.getElementById('leads-table-body');
   if (!leads.length) {
-    tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state">
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state">
       <div class="empty-icon">👥</div>
       <h3>No leads found</h3>
       <p>Import your leads from the Apollo CSV</p>
@@ -604,8 +788,10 @@ function renderLeadsTable(leads) {
 
   tbody.innerHTML = leads.map(lead => {
     const contact = lead.contacts?.[0];
+    const isChecked = selectedLeadIds.has(lead.id);
     return `
       <tr>
+        <td><input type="checkbox" class="lead-checkbox" data-id="${lead.id}" ${isChecked ? 'checked' : ''} onchange="toggleLeadSelect('${lead.id}', this.checked)" style="width:16px; height:16px; cursor:pointer; accent-color: var(--accent-indigo);"></td>
         <td>
           <div style="font-weight:600;color:var(--text-heading);">${escHtml(lead.company_name)}</div>
           ${contact?.name ? `<div style="font-size:0.75rem;color:var(--text-muted);">${escHtml(contact.name)} — ${escHtml(contact.title || '')}</div>` : ''}
@@ -623,6 +809,7 @@ function renderLeadsTable(leads) {
         </td>
       </tr>`;
   }).join('');
+  updateLeadSelectionUI();
 }
 
 async function filterLeads() {
@@ -642,6 +829,117 @@ async function filterLeads() {
   } catch (e) {
     console.error('Filter error:', e);
   }
+}
+
+function toggleLeadSelect(leadId, checked) {
+  if (checked) {
+    selectedLeadIds.add(leadId);
+  } else {
+    selectedLeadIds.delete(leadId);
+  }
+  updateLeadSelectionUI();
+}
+
+function toggleSelectAllLeads(checkbox) {
+  const allCheckboxes = document.querySelectorAll('.lead-checkbox');
+  if (checkbox.checked) {
+    allCheckboxes.forEach(cb => {
+      cb.checked = true;
+      selectedLeadIds.add(cb.dataset.id);
+    });
+  } else {
+    allCheckboxes.forEach(cb => {
+      cb.checked = false;
+      selectedLeadIds.delete(cb.dataset.id);
+    });
+  }
+  updateLeadSelectionUI();
+}
+
+function updateLeadSelectionUI() {
+  const btn = document.getElementById('btn-send-to-bulk');
+  if (btn) {
+    if (selectedLeadIds.size > 0) {
+      btn.style.display = 'inline-flex';
+      btn.textContent = `✉️ Send ${selectedLeadIds.size} to Bulk Email`;
+    } else {
+      btn.style.display = 'none';
+    }
+  }
+}
+
+async function sendSelectedLeadsToBulk() {
+  if (selectedLeadIds.size === 0) {
+    showToast('⚠️ No leads selected. Check the boxes next to leads you want to send.', 'error');
+    return;
+  }
+
+  const leadIds = [...selectedLeadIds];
+  const emailType = 'cold_outreach';
+  const generationMethod = 'ai';
+
+  showToast(`⏳ Generating emails for ${leadIds.length} selected lead(s)...`, 'info');
+
+  const btn = document.getElementById('btn-send-to-bulk');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="loading-spinner"></span> Generating...';
+
+  try {
+    const res = await fetch(`${API}/api/emails/generate-batch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lead_ids: leadIds, email_type: emailType, generation_method: generationMethod }),
+    });
+    const data = await res.json();
+
+    if (data.error) {
+      showToast(`❌ ${data.error}`, 'error');
+      btn.disabled = false;
+      btn.textContent = `✉️ Send ${leadIds.length} to Bulk Email`;
+      return;
+    }
+
+    const newEmails = data.emails || [];
+
+    if (newEmails.length === 0) {
+      showToast('⚠️ No emails could be generated for the selected leads. Make sure they have email addresses.', 'error');
+      btn.disabled = false;
+      btn.textContent = `✉️ Send ${leadIds.length} to Bulk Email`;
+      return;
+    }
+
+    // Merge with existing generated emails (avoid duplicates by lead_id)
+    const existingIds = new Set(generatedEmails.map(e => e.lead_id));
+    let addedCount = 0;
+    for (const email of newEmails) {
+      if (!existingIds.has(email.lead_id)) {
+        generatedEmails.push(email);
+        addedCount++;
+      }
+    }
+
+    // Save merged list
+    try {
+      await fetch(`${API}/api/emails/save-generated`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emails: generatedEmails }),
+      });
+    } catch (saveErr) {
+      // Non-critical, emails are still in memory
+      console.error('Save generated emails error:', saveErr);
+    }
+
+    selectedBulkEmails = new Set(generatedEmails.map((_, i) => i));
+    showToast(`✅ Added ${addedCount} email(s) to Bulk Email. Navigating...`, 'success');
+
+    setTimeout(() => showPage('bulk-email'), 500);
+  } catch (e) {
+    showToast('❌ Failed to generate emails: ' + e.message, 'error');
+  }
+
+  btn.disabled = false;
+  btn.textContent = `✉️ Send ${leadIds.length} to Bulk Email`;
 }
 
 async function importLeads() {
@@ -819,6 +1117,10 @@ async function generateEmail() {
       btn.disabled = false;
       btn.innerHTML = '✨ Generate Email';
       return;
+    }
+
+    if (email.error) {
+      showToast(`⚠️ AI Generation failed (Quota Exceeded). Used high-converting Template instead.`, 'error');
     }
 
     const quality = email.quality_score || {};
@@ -1001,7 +1303,7 @@ async function syncCampaignStats(silent = false) {
     
     // Update global analytics cards
     const el = (id) => document.getElementById(id);
-    if (el('camp-stat-sent')) el('camp-stat-sent').textContent = data.total_sent || 0;
+    if (el('camp-stat-sent')) el('camp-stat-sent').textContent = data.total_bulk_sent || 0;
     if (el('camp-stat-opened')) el('camp-stat-opened').textContent = data.total_opened || 0;
     if (el('camp-stat-replies')) el('camp-stat-replies').textContent = data.total_replied || 0;
     if (el('camp-stat-bounced')) el('camp-stat-bounced').textContent = data.total_bounced || 0;
@@ -1108,6 +1410,25 @@ async function loadReplies() {
                                r.sentiment === 'negative' ? '😞' : '😐';
         const unreadStyle = !r.read ? 'border-left: 3px solid var(--accent-violet);' : '';
         const date = new Date(r.received_at).toLocaleString();
+        let bodyText = r.body_preview || '';
+        const separators = [
+          /\n\s*-*\s*Original message\s*-*\s*\n/i,
+          /\n\s*From:\s*.*<.*@.*>/i,
+          /\n\s*On\s+.*wrote:\s*(\n|$)/i,
+          /\n.*Get Outlook for iOS/i,
+          /\n_{4,}/,
+          /\n>\s+/
+        ];
+        let earliestIdx = bodyText.length;
+        for (let regex of separators) {
+          const match = bodyText.match(regex);
+          if (match && match.index < earliestIdx) {
+            earliestIdx = match.index;
+          }
+        }
+        let newReply = bodyText.substring(0, earliestIdx).trim();
+        let quotedText = bodyText.substring(earliestIdx).trim();
+
         return `
           <div class="card" style="margin:0; padding:16px; cursor:pointer; ${unreadStyle}" onclick="toggleReplyBody('${r.id}')">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
@@ -1122,7 +1443,10 @@ async function loadReplies() {
               </div>
             </div>
             <div style="font-weight:500; color:var(--text-secondary); margin-bottom:4px;">${escHtml(r.subject)}</div>
-            <div id="reply-body-${r.id}" style="display:none; margin-top:12px; padding:12px; background:var(--bg-elevated); border-radius:8px; font-size:0.9rem; color:var(--text-secondary); white-space:pre-wrap;">${escHtml(r.body_preview)}</div>
+            <div id="reply-body-${r.id}" style="display:none; margin-top:12px;">
+              <div style="padding:16px; background:rgba(99, 102, 241, 0.08); border-left:4px solid var(--accent-indigo); border-radius:8px; font-size:1.05rem; color:var(--text-heading); font-weight:500; white-space:pre-wrap;">${escHtml(newReply)}</div>
+              ${quotedText ? `<div style="margin-top:12px; padding:12px; background:var(--bg-elevated); border-radius:8px; font-size:0.85rem; color:var(--text-muted); white-space:pre-wrap; opacity: 0.8;">${escHtml(quotedText)}</div>` : ''}
+            </div>
           </div>
         `;
       }).join('')}

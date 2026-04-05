@@ -7,7 +7,7 @@
   <title>Bassi Clothing — AI Marketing Dashboard</title>
   <meta name="description"
     content="B2B Outbound Engine, Sales Pipeline, and Content Ops for Bassi Clothing's UK/EU garment export business." />
-  <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="stylesheet" href="/static/styles.css?v=2.1" />
 </head>
 
 <body>
@@ -312,9 +312,6 @@
               <button class="btn btn-primary" id="btn-generate-all" onclick="generateAllEmails()">
                 ✨ Generate All Emails (AI)
               </button>
-              <button class="btn btn-success" id="btn-send-all" onclick="confirmSendAllEmails()" style="display:none;">
-                📨 Send All Emails
-              </button>
             </div>
           </div>
         </div>
@@ -327,6 +324,23 @@
           </div>
           <div class="progress-bar-container mt-1">
             <div class="progress-bar-fill" id="bulk-progress-bar" style="width:0%;"></div>
+          </div>
+        </div>
+
+        <!-- Selection Toolbar -->
+        <div id="bulk-selection-toolbar" style="display:none;" class="card">
+          <div class="flex-between" style="flex-wrap:wrap; gap:12px;">
+            <div class="flex gap-1" style="align-items:center;">
+              <button class="btn btn-sm btn-secondary" onclick="toggleSelectAllBulk()" id="btn-select-all-bulk">☑️ Select All</button>
+              <button class="btn btn-sm btn-secondary" onclick="deselectAllBulk()">✖️ Deselect All</button>
+              <button class="btn btn-sm btn-danger" onclick="removeSelectedBulk()">🗑️ Remove Selected</button>
+              <span style="font-size:0.82rem; color:var(--text-muted); margin-left:8px;" id="bulk-selection-count">0 selected</span>
+            </div>
+            <div class="btn-group">
+              <button class="btn btn-success" id="btn-send-selected" onclick="confirmSendSelectedEmails()">
+                📨 Send Selected
+              </button>
+            </div>
           </div>
         </div>
 
@@ -385,6 +399,7 @@
           </div>
           <div class="btn-group">
             <button class="btn btn-secondary" onclick="importLeads()">📥 Import CSV</button>
+            <button class="btn btn-primary" id="btn-send-to-bulk" onclick="sendSelectedLeadsToBulk()" style="display:none;">✉️ Send to Bulk Email</button>
           </div>
         </div>
 
@@ -431,6 +446,7 @@
             <table>
               <thead>
                 <tr>
+                  <th style="width:40px;"><input type="checkbox" id="leads-select-all" onchange="toggleSelectAllLeads(this)" title="Select All"></th>
                   <th>Company</th>
                   <th>Country</th>
                   <th>Industry</th>
@@ -569,7 +585,7 @@
         <div class="stats-grid" id="campaign-analytics-grid">
           <div class="stat-card">
             <div class="stat-value" id="camp-stat-sent">0</div>
-            <div class="stat-label">Emails Sent</div>
+            <div class="stat-label">Bulk Emails Sent</div>
           </div>
           <div class="stat-card">
             <div class="stat-value" style="color:var(--accent-violet);" id="camp-stat-opened">0</div>
@@ -773,7 +789,7 @@
     </div>
   </div>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=2.1"></script>
 </body>
 
 </html>

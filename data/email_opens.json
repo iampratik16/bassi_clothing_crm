@@ -4,5 +4,53 @@
     "opened_at": "2026-04-04T14:00:13.032798",
     "user_agent": "curl/8.7.1",
     "ip_address": "127.0.0.1"
+  },
+  {
+    "send_id": "test_tracking_123",
+    "opened_at": "2026-04-05T17:10:29.972491",
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+    "ip_address": "127.0.0.1"
+  },
+  {
+    "send_id": "gemini_test_pixel_123",
+    "opened_at": "2026-04-05T17:11:47.420145",
+    "user_agent": "curl/8.7.1",
+    "ip_address": "127.0.0.1"
+  },
+  {
+    "send_id": "d6a26c2c-be1f-4156-84be-7752a07e7754",
+    "opened_at": "2026-04-05T17:20:08.009285",
+    "user_agent": "curl/8.7.1",
+    "ip_address": "127.0.0.1"
+  },
+  {
+    "send_id": "0bdad37c-461e-44a5-a72b-0b9a19ba8ea8",
+    "opened_at": "2026-04-05T17:22:12.464872",
+    "user_agent": "curl/8.7.1",
+    "ip_address": "127.0.0.1"
+  },
+  {
+    "send_id": "179ab9c7-661d-408a-b360-cfcb7852acb3",
+    "opened_at": "2026-04-05T17:47:58.914787",
+    "user_agent": "testclient",
+    "ip_address": "testclient"
+  },
+  {
+    "send_id": "88612698-21e5-4c8c-a1d9-6d7b78168556",
+    "opened_at": "2026-04-05T17:48:08.514938",
+    "user_agent": "testclient",
+    "ip_address": "testclient"
+  },
+  {
+    "send_id": "test-uuid-9999-v2",
+    "opened_at": "2026-04-05T17:51:06.291942",
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+    "ip_address": "127.0.0.1"
+  },
+  {
+    "send_id": "a91f4e82-42bc-4455-b630-0b0ea1ad4b31",
+    "opened_at": "2026-04-05T22:08:22.809836",
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+    "ip_address": "127.0.0.1"
   }
 ]
