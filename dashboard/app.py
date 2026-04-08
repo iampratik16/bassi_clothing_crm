@@ -95,11 +95,11 @@ async def api_get_lead(lead_id: str):
 @app.post("/api/leads/import")
 async def api_import_leads(request: Request):
     body = await request.json()
-    csv_path = body.get("csv_path", "")
-    if not csv_path:
-        csv_path = str(BASE_DIR / "UK_Europe_Lead_List_FILLED.csv")
-    from outbound_engine.lead_manager import import_from_csv
-    result = import_from_csv(csv_path)
+    file_path = body.get("file_path", body.get("csv_path", ""))
+    if not file_path:
+        file_path = str(BASE_DIR / "UK_Europe_Lead_List_FILLED.xlsx")
+    from outbound_engine.lead_manager import import_leads_file
+    result = import_leads_file(file_path)
     return result
 
 
@@ -135,10 +135,12 @@ async def api_apollo_search(request: Request):
     body = await request.json()
     page = body.get("page", 1)
     per_page = body.get("per_page", 100)
+    location = body.get("location", "")
+    keywords = body.get("keywords", "")
 
     from outbound_engine.apollo_search import search_apollo_leads, export_leads_to_excel
 
-    result = await asyncio.to_thread(search_apollo_leads, page=page, per_page=per_page)
+    result = await asyncio.to_thread(search_apollo_leads, page=page, per_page=per_page, location_override=location, keywords_override=keywords)
 
     if result.get("error"):
         return JSONResponse(status_code=400, content=result)
@@ -149,6 +151,22 @@ async def api_apollo_search(request: Request):
         excel_path = export_leads_to_excel(leads)
         result["excel_path"] = excel_path
 
+    return result
+
+
+@app.post("/api/apollo/export-to-crm")
+async def api_apollo_export_to_crm(request: Request):
+    """Import the generated Apollo excel file directly into the CRM database."""
+    body = await request.json()
+    excel_path = body.get("excel_path", "")
+    selected_indices = body.get("selected_indices", None)
+    
+    if not excel_path:
+        return JSONResponse(status_code=400, content={"error": "Missing excel_path"})
+    from outbound_engine.lead_manager import import_leads_file
+    result = await asyncio.to_thread(import_leads_file, excel_path, selected_indices)
+    if "error" in result:
+        return JSONResponse(status_code=400, content=result)
     return result
 
 
@@ -165,6 +183,31 @@ async def api_apollo_download():
             filename=Path(filepath).name,
         )
     return JSONResponse(status_code=404, content={"error": "No export file found. Run Apollo search first."})
+
+
+# ═══════════════════════════════════════════════════════════════
+#  SENT MAILS API
+# ═══════════════════════════════════════════════════════════════
+
+@app.get("/api/sent-mails")
+async def api_sent_mails():
+    """Return all sent email logs across all dates, sorted newest first."""
+    log_dir = BASE_DIR / "output" / "send_logs"
+    all_logs = []
+    if log_dir.exists():
+        for log_file in sorted(log_dir.glob("*.json"), reverse=True):
+            try:
+                with open(log_file, "r") as f:
+                    day_logs = json.load(f)
+                    all_logs.extend(day_logs)
+            except Exception:
+                pass
+    # Sort by timestamp descending (newest first)
+    all_logs.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+    return {
+        "sent_mails": all_logs,
+        "total": len(all_logs),
+    }
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -197,21 +240,35 @@ async def api_upload_emails(file: UploadFile = File(...)):
             rows = df.to_dict("records")
         else:
             # CSV
-            text = content.decode("utf-8-sig")
+            try:
+                text = content.decode("utf-8-sig")
+            except UnicodeDecodeError:
+                text = content.decode("latin1", errors="replace")
             reader = csv.DictReader(io.StringIO(text))
             rows = list(reader)
 
         for row in rows:
-            company_name = (row.get("Company Name") or row.get("company_name") or "").strip()
-            email = (row.get("Email") or row.get("email") or "").strip()
-            person = (row.get("Person") or row.get("person") or row.get("Name") or row.get("name") or "").strip()
-            title = (row.get("Primary_Designation") or row.get("Title") or row.get("title") or "").strip()
+            company_name = str(row.get("Company Name") or row.get("company_name") or "").strip()
+            email = str(row.get("Email") or row.get("email") or "").strip()
+            person = str(row.get("Person") or row.get("person") or row.get("Name") or row.get("name") or "").strip()
+            title = str(row.get("Primary_Designation") or row.get("Title") or row.get("title") or "").strip()
 
             if not company_name:
                 continue
 
             if company_name.lower() in company_map:
                 lead = company_map[company_name.lower()]
+                
+                # Update missing company details from re-uploaded file
+                lead["about"] = str(row.get("About") or row.get("about") or lead.get("about", "")).strip()
+                lead["country"] = str(row.get("Country") or row.get("country") or lead.get("country", "")).strip()
+                lead["industry"] = str(row.get("Industry") or row.get("industry") or lead.get("industry", "")).strip()
+                lead["employees"] = str(row.get("Employees") or row.get("employees") or lead.get("employees", "")).strip()
+                lead["revenue"] = str(row.get("Revenue") or row.get("revenue") or lead.get("revenue", "")).strip()
+                lead["founded"] = str(row.get("Founded") or row.get("founded") or lead.get("founded", "")).strip()
+                lead["company_phone"] = str(row.get("Company_Phone") or lead.get("company_phone", "")).strip()
+                lead["company_linkedin"] = str(row.get("Company_LinkedIn") or lead.get("company_linkedin", "")).strip()
+
                 # Update or add contact with email
                 if email:
                     contact_updated = False
@@ -235,21 +292,25 @@ async def api_upload_emails(file: UploadFile = File(...)):
                         })
                     lead["updated_at"] = datetime.now().isoformat()
                     updated_count += 1
+                else:
+                    # Still consider it updated if we enriched company details
+                    lead["updated_at"] = datetime.now().isoformat()
+                    updated_count += 1
             else:
                 # New lead from upload
                 import uuid
                 new_lead = {
                     "id": str(uuid.uuid4())[:8],
                     "company_name": company_name,
-                    "website": (row.get("Website") or row.get("website") or "").strip(),
-                    "about": (row.get("About") or row.get("about") or "").strip(),
-                    "country": (row.get("Country") or row.get("country") or "").strip(),
-                    "industry": (row.get("Industry") or row.get("industry") or "").strip(),
-                    "employees": (row.get("Employees") or row.get("employees") or "").strip(),
-                    "revenue": (row.get("Revenue") or row.get("revenue") or "").strip(),
-                    "founded": (row.get("Founded") or row.get("founded") or "").strip(),
-                    "company_phone": (row.get("Company_Phone") or "").strip(),
-                    "company_linkedin": (row.get("Company_LinkedIn") or "").strip(),
+                    "website": str(row.get("Website") or row.get("website") or "").strip(),
+                    "about": str(row.get("About") or row.get("about") or "").strip(),
+                    "country": str(row.get("Country") or row.get("country") or "").strip(),
+                    "industry": str(row.get("Industry") or row.get("industry") or "").strip(),
+                    "employees": str(row.get("Employees") or row.get("employees") or "").strip(),
+                    "revenue": str(row.get("Revenue") or row.get("revenue") or "").strip(),
+                    "founded": str(row.get("Founded") or row.get("founded") or "").strip(),
+                    "company_phone": str(row.get("Company_Phone") or "").strip(),
+                    "company_linkedin": str(row.get("Company_LinkedIn") or "").strip(),
                     "contacts": [],
                     "stage": "new",
                     "score": 0,
@@ -342,10 +403,11 @@ async def api_generate_batch(request: Request):
 
 @app.post("/api/emails/generate-all")
 async def api_generate_all_emails(request: Request):
-    """Generate personalized emails for all leads that have email addresses."""
+    """Generate personalized emails for selected leads (or all leads with email addresses)."""
     body = await request.json()
     email_type = body.get("email_type", "cold_outreach")
     generation_method = body.get("generation_method", "ai")
+    selected_lead_ids = body.get("lead_ids", None)  # Optional: only generate for these
 
     from outbound_engine.lead_manager import get_all_leads
     from outbound_engine.email_generator import generate_email, score_email
@@ -356,6 +418,11 @@ async def api_generate_all_emails(request: Request):
         l for l in all_leads
         if any(c.get("email") for c in l.get("contacts", []))
     ]
+
+    # Filter to only selected leads if lead_ids is provided
+    if selected_lead_ids and len(selected_lead_ids) > 0:
+        selected_set = set(selected_lead_ids)
+        leads_with_email = [l for l in leads_with_email if l.get("id") in selected_set]
 
     if not leads_with_email:
         return {"error": "No leads with email addresses found. Upload emails first.", "emails": [], "count": 0}
@@ -378,10 +445,11 @@ async def api_generate_all_emails(request: Request):
     # Save generated emails
     _save_generated_emails(emails)
 
+    method_label = "AI" if generation_method == "ai" else "template"
     return {
         "emails": emails,
         "count": len(emails),
-        "message": f"Generated {new_count} new personalized emails using Gemini Pro",
+        "message": f"Generated {new_count} personalized {method_label} emails",
     }
 
 

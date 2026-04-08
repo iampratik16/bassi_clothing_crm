@@ -57,10 +57,10 @@ value_proposition:
 
   key_benefits:
     - "MOQ flexibility for emerging brands (as low as 300 pieces)"
-    - "Fast turnaround times (20-30 days production)"
-    - "Strict quality control with internationally recognized certifications"
+    - "90-100 day production turnaround with consistent quality"
+    - "SEDEX 4 Pillar certified factory audited by SETMA"
+    - "Zedd silver certification — ethical and compliant manufacturing"
     - "Competitive pricing — direct manufacturer, no middlemen"
-    - "Sustainable manufacturing practices (GOTS, Oeko-Tex certified)"
     - "Dedicated account manager for each client"
 
   differentiators:
@@ -72,11 +72,11 @@ value_proposition:
     - "Transparent pricing with no hidden costs"
 
   pain_points_addressed:
-    - "Long lead times from Far East suppliers (6-8 weeks vs our 20-30 days)"
+    - "Unreliable Far East suppliers with 6-8 week lead times vs our structured 90-100 day production"
     - "Quality inconsistency across production batches"
     - "High MOQs that block emerging brands (other: 1000+, us: 300)"
+    - "Lack of certified ethical manufacturing (we are SEDEX 4 Pillar & Zedd silver certified)"
     - "Complicated import logistics and customs delays"
-    - "Lack of sustainable manufacturing options"
     - "Poor communication with overseas factories"
 
 product_categories:
@@ -157,7 +157,7 @@ email_templates:
 
 content_guidelines:
   tone: "Professional but approachable, not pushy"
-  max_word_count: 180
+  max_word_count: 400
   avoid:
     - "Generic mass email language"
     - "Hard selling or pressure tactics"

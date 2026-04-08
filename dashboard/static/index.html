@@ -56,6 +56,9 @@
           <a class="nav-item" data-page="campaigns" onclick="showPage('campaigns')">
             <span class="icon">📧</span><span>Campaigns</span>
           </a>
+          <a class="nav-item" data-page="sent-mails" onclick="showPage('sent-mails')">
+            <span class="icon">📨</span><span>Sent Mails</span>
+          </a>
           <a class="nav-item" data-page="replies" onclick="showPage('replies')">
             <span class="icon">📬</span><span>Replies</span>
             <span class="badge" id="replies-unread-badge" style="background:var(--accent-emerald);">0</span>
@@ -98,8 +101,7 @@
             <p class="subtitle">Bassi Clothing B2B Marketing — UK & EU Focus</p>
           </div>
           <div class="btn-group">
-            <button class="btn btn-secondary" onclick="importLeads()">📥 Import Leads</button>
-            <button class="btn btn-primary" onclick="showPage('bulk-email')">✉️ Bulk Email</button>
+            <button id="btn-refresh-dashboard" class="btn btn-primary" onclick="loadDashboard(true)">🔄 Refresh Dashboard</button>
           </div>
         </div>
 
@@ -175,13 +177,44 @@
             Decision makers like <strong>Head of Sourcing, Procurement Director, Buying Manager, CEO</strong> —
             Company size: <strong>50-10,000 employees</strong>
           </p>
+          <div class="grid-3 mb-2">
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label">Page Number</label>
+              <input type="number" class="form-input" id="apollo-filter-page" value="1" min="1" placeholder="Page 1">
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label">Location (Override ICP)</label>
+              <input type="text" class="form-input" id="apollo-filter-location" placeholder="e.g. United States, Paris">
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label">Keywords (Override ICP)</label>
+              <input type="text" class="form-input" id="apollo-filter-keywords" placeholder="e.g. Sportswear, Footwear">
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label">Max Leads</label>
+              <input type="number" class="form-input" id="apollo-filter-limit" value="100" min="1" max="1000">
+            </div>
+          </div>
           <div class="btn-group">
             <button class="btn btn-primary" id="btn-apollo-search" onclick="triggerApolloSearch()">
               🔍 Search Apollo
             </button>
+            <button class="btn btn-secondary" onclick="changeApolloPage(-1)" style="margin-left: 8px;">
+              ◀ Prev Page
+            </button>
+            <button class="btn btn-secondary" onclick="changeApolloPage(1)">
+              Next Page ▶
+            </button>
+            <button class="btn btn-secondary" onclick="clearApolloSearch()" style="margin-left: 8px; color: var(--accent-rose); border-color: rgba(244, 63, 94, 0.2);">
+              🗑️ Clear
+            </button>
             <button class="btn btn-secondary" id="btn-apollo-download" onclick="downloadApolloExcel()"
-              style="display:none;">
+              style="display:none; margin-left: auto;">
               📥 Download Excel
+            </button>
+            <button class="btn btn-success" id="btn-apollo-export-crm" onclick="exportApolloToCrm()"
+              style="display:none; background: #1f2937; color: white;">
+              ⚡ Export to CRM
             </button>
           </div>
         </div>
@@ -197,6 +230,7 @@
               <table>
                 <thead>
                   <tr>
+                    <th style="width: 40px;"><input type="checkbox" id="apollo-select-all" onclick="toggleApolloSelectAll()" checked></th>
                     <th>Company</th>
                     <th>Person</th>
                     <th>Title</th>
@@ -282,7 +316,7 @@
         <div class="page-header">
           <div>
             <h2>✉️ Bulk Email</h2>
-            <p class="subtitle">Generate & send personalized emails via Gemini Pro</p>
+            <p class="subtitle">Generate & send personalized emails</p>
           </div>
         </div>
 
@@ -302,15 +336,14 @@
             </div>
             <div class="form-group" style="margin-bottom:0;flex:1;min-width:200px;">
               <label class="form-label">Generation Method</label>
-              <select class="form-select" id="bulk-generation-method"
-                onchange="document.getElementById('btn-generate-all').innerHTML = this.value === 'ai' ? '✨ Generate All Emails (AI)' : '📝 Generate All Emails (Template)'">
+              <select class="form-select" id="bulk-generation-method">
                 <option value="ai">✨ AI Generated</option>
                 <option value="template">📝 Template Based</option>
               </select>
             </div>
             <div class="btn-group" style="margin-bottom:0;">
               <button class="btn btn-primary" id="btn-generate-all" onclick="generateAllEmails()">
-                ✨ Generate All Emails (AI)
+                ⚡ Generate
               </button>
             </div>
           </div>
@@ -569,6 +602,48 @@
         </div>
       </section>
 
+      <!-- ══════ SENT MAILS PAGE ══════ -->
+      <section class="page-section" id="page-sent-mails">
+        <div class="page-header">
+          <div>
+            <h2>📨 Sent Mails</h2>
+            <p class="subtitle">History of all bulk and single emails sent</p>
+          </div>
+          <div class="btn-group">
+            <button class="btn btn-secondary" onclick="loadSentMails()">🔄 Refresh</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date & Time</th>
+                  <th>To</th>
+                  <th>Company</th>
+                  <th>Subject</th>
+                  <th>Type</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="sent-mails-table-body">
+                <tr>
+                  <td colspan="7">
+                    <div class="empty-state">
+                      <div class="empty-icon">📨</div>
+                      <h3>No sent mails</h3>
+                      <p>Sent emails will appear here</p>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
       <!-- ══════ CAMPAIGNS PAGE ══════ -->
       <section class="page-section" id="page-campaigns">
         <div class="page-header">
@@ -685,7 +760,7 @@
             <h2>Lead Scoring</h2>
             <p class="subtitle">ICP-based scoring — prioritize your best-fit prospects</p>
           </div>
-          <button class="btn btn-primary" onclick="loadScoring()">🔄 Refresh Scores</button>
+          <button id="btn-refresh-scores" class="btn btn-primary" onclick="loadScoring(true)">🔄 Refresh Scores</button>
         </div>
 
         <div class="stats-grid" id="scoring-stats"></div>

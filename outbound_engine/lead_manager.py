@@ -49,73 +49,85 @@ def _save_optouts(optouts: List[str]):
         json.dump(optouts, f, indent=2)
 
 
-def import_from_csv(csv_path: str) -> Dict:
-    """Import leads from Apollo-enriched CSV."""
-    csv_path = Path(csv_path)
-    if not csv_path.exists():
-        return {"error": f"File not found: {csv_path}"}
+def import_leads_file(file_path: str, selected_indices: Optional[List[int]] = None) -> Dict:
+    """Import leads from Apollo-enriched CSV or Excel file."""
+    file_path = Path(file_path)
+    if not file_path.exists():
+        return {"error": f"File not found: {file_path}"}
 
     existing_leads = _load_leads()
-    existing_companies = {l["company_name"].lower() for l in existing_leads}
+    existing_companies = {l["company_name"].lower() for l in existing_leads if l.get("company_name")}
     new_leads = []
 
-    with open(csv_path, "r", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            company_name = row.get("Company Name", "").strip()
-            if not company_name or company_name.lower() in existing_companies:
-                continue
+    try:
+        import pandas as pd
+        if file_path.suffix.lower() in [".xlsx", ".xls"]:
+            df = pd.read_excel(file_path, engine="openpyxl")
+        else:
+            df = pd.read_csv(file_path)
+        df.fillna("", inplace=True)
+        rows = df.to_dict("records")
+    except Exception as e:
+        return {"error": f"Failed to parse file: {str(e)}"}
 
-            lead = {
-                "id": str(uuid.uuid4())[:8],
-                "company_name": company_name,
-                "website": row.get("Website", "").strip(),
-                "about": row.get("About", "").strip(),
-                "country": row.get("Country", "").strip(),
-                "industry": row.get("Industry", "").strip(),
-                "employees": row.get("Employees", "").strip(),
-                "revenue": row.get("Revenue", "").strip(),
-                "founded": row.get("Founded", "").strip(),
-                "company_phone": row.get("Company_Phone", "").strip(),
-                "company_linkedin": row.get("Company_LinkedIn", "").strip(),
-                "contacts": [],
-                "stage": "new",
-                "score": 0,
-                "tags": [],
-                "notes": [],
-                "campaigns": [],
-                "created_at": datetime.now().isoformat(),
-                "updated_at": datetime.now().isoformat(),
-            }
+    for i, row in enumerate(rows):
+        if selected_indices is not None and i not in selected_indices:
+            continue
+        
+        company_name = str(row.get("Company Name", "")).strip()
+        if not company_name or company_name.lower() in existing_companies:
+            continue
 
-            # Primary contact
-            person = row.get("Person", "").strip()
-            email = row.get("Email", "").strip()
-            designation = row.get("Primary_Designation", "").strip()
-            if person or email:
+        lead = {
+            "id": str(uuid.uuid4())[:8],
+            "company_name": company_name,
+            "website": str(row.get("Website", "")).strip(),
+            "about": (str(row.get("Company Description", "")).strip() or str(row.get("About", "")).strip()),
+            "country": str(row.get("Country", "")).strip(),
+            "industry": str(row.get("Industry", "")).strip(),
+            "employees": str(row.get("Employees", "")).strip(),
+            "revenue": str(row.get("Revenue", "")).strip(),
+            "founded": str(row.get("Founded", "")).strip(),
+            "company_phone": str(row.get("Company_Phone", "")).strip(),
+            "company_linkedin": str(row.get("Company_LinkedIn", "")).strip(),
+            "contacts": [],
+            "stage": "new",
+            "score": 0,
+            "tags": [],
+            "notes": [],
+            "campaigns": [],
+            "created_at": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat(),
+        }
+
+        # Primary contact
+        person = str(row.get("Person", "")).strip()
+        email = str(row.get("Email", "")).strip()
+        designation = str(row.get("Primary_Designation", "")).strip()
+        if person or email:
+            lead["contacts"].append({
+                "name": person, "email": email, "title": designation,
+                "phone": str(row.get("Primary_Phone", "")).strip(),
+                "linkedin": str(row.get("Primary_LinkedIn", "")).strip(),
+                "is_primary": True,
+            })
+
+        # Alternate contacts
+        for prefix, name_key, email_key, title_key in [
+            ("alt1", "Alternate_Person_Name", "Alternate_Email", "Alternate_Designation"),
+            ("alt2", "Alternate2_Name", "Alternate2_Email", "Alternate2_Title"),
+        ]:
+            alt_name = str(row.get(name_key, "")).strip()
+            alt_email = str(row.get(email_key, "")).strip()
+            alt_title = str(row.get(title_key, "")).strip()
+            if alt_name or alt_email:
                 lead["contacts"].append({
-                    "name": person, "email": email, "title": designation,
-                    "phone": row.get("Primary_Phone", "").strip(),
-                    "linkedin": row.get("Primary_LinkedIn", "").strip(),
-                    "is_primary": True,
+                    "name": alt_name, "email": alt_email, "title": alt_title,
+                    "phone": "", "linkedin": "", "is_primary": False,
                 })
 
-            # Alternate contacts
-            for prefix, name_key, email_key, title_key in [
-                ("alt1", "Alternate_Person_Name", "Alternate_Email", "Alternate_Designation"),
-                ("alt2", "Alternate2_Name", "Alternate2_Email", "Alternate2_Title"),
-            ]:
-                alt_name = row.get(name_key, "").strip()
-                alt_email = row.get(email_key, "").strip()
-                alt_title = row.get(title_key, "").strip()
-                if alt_name or alt_email:
-                    lead["contacts"].append({
-                        "name": alt_name, "email": alt_email, "title": alt_title,
-                        "phone": "", "linkedin": "", "is_primary": False,
-                    })
-
-            new_leads.append(lead)
-            existing_companies.add(company_name.lower())
+        new_leads.append(lead)
+        existing_companies.add(company_name.lower())
 
     all_leads = existing_leads + new_leads
     _save_leads(all_leads)
@@ -345,9 +357,12 @@ def get_pipeline_stats() -> Dict:
 
     for lead in leads:
         stats[lead.get("stage", "new")] = stats.get(lead.get("stage", "new"), 0) + 1
-        country = lead.get("country", "Unknown")
+        country_val = str(lead.get("country") or "").strip()
+        country = country_val if country_val else "Unknown"
         countries[country] = countries.get(country, 0) + 1
-        industry = lead.get("industry", "Unknown")
+        
+        industry_val = str(lead.get("industry") or "").strip()
+        industry = industry_val if industry_val else "Unknown"
         industries[industry] = industries.get(industry, 0) + 1
 
     return {

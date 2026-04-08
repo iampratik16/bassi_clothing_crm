@@ -274,7 +274,25 @@ def _quick_sentiment(text: str) -> str:
     """Quick keyword-based sentiment detection for replies."""
     if not text:
         return "neutral"
-    text_lower = text.lower()
+        
+    # Strip out quoted original emails to prevent false matches on the footer
+    lines = text.split("\n")
+    cleaned_lines = []
+    for line in lines:
+        # Stop processing if we hit common reply quoting markers
+        if line.strip().startswith(">"):
+            break
+        if line.startswith("On ") and "wrote:" in line:
+            break
+        if line.startswith("From:") and ("Sent:" in text or "To:" in text):
+            break
+        if "________________________________" in line:
+            break
+        cleaned_lines.append(line)
+        
+    cleaned_text = " ".join(cleaned_lines)
+    text_lower = cleaned_text.lower()
+
     positive = ["interested", "great", "love", "wonderful", "perfect",
                  "yes", "absolutely", "let's", "schedule", "meeting",
                  "call", "discuss", "samples", "pricing", "quote",

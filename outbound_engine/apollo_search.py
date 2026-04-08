@@ -7,11 +7,13 @@ Exports results as Excel file for the dashboard.
 
 import json
 import os
+import time
 import yaml
 import requests
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Optional
+from urllib.parse import urlparse
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 CONFIG_FILE = BASE_DIR / "bassi_config.yaml"
@@ -89,10 +91,73 @@ def _build_search_params(config: Dict) -> Dict:
     return params
 
 
-def search_apollo_leads(page: int = 1, per_page: int = 100) -> Dict:
+def _extract_domain(url: str) -> str:
+    """Extract clean domain from a URL string."""
+    if not url:
+        return ""
+    url = url.strip()
+    if not url.startswith("http"):
+        url = "http://" + url
+    try:
+        parsed = urlparse(url)
+        domain = parsed.netloc or parsed.path
+        domain = domain.replace("www.", "").strip("/")
+        return domain
+    except Exception:
+        return ""
+
+
+def _enrich_organization(domain: str, api_key: str) -> Dict:
+    """
+    Enrich a single organization via Apollo's enrichment endpoint
+    to get the full company description.
+    """
+    if not domain or not api_key:
+        return {}
+
+    headers = {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-cache",
+        "X-Api-Key": api_key,
+    }
+
+    try:
+        response = requests.get(
+            f"{APOLLO_API_BASE}/organizations/enrich",
+            headers=headers,
+            params={"domain": domain},
+            timeout=15,
+        )
+        if response.status_code == 200:
+            data = response.json()
+            org = data.get("organization", {})
+            if org:
+                return org
+    except Exception as e:
+        print(f"  ⚠️ Enrichment failed for {domain}: {e}")
+
+    return {}
+
+
+def _get_about_from_org(org: Dict) -> str:
+    """Extract the best available description from an org dict, trying all known field names."""
+    for field in ["short_description", "seo_description", "description", "snippet", "tagline"]:
+        val = org.get(field, "") or ""
+        val = str(val).strip()
+        if val and len(val) > 10:  # ignore trivially short texts
+            return val
+    return ""
+
+
+def search_apollo_leads(
+    page: int = 1, 
+    per_page: int = 100, 
+    location_override: str = "", 
+    keywords_override: str = ""
+) -> Dict:
     """
     Search Apollo for leads matching ICP from bassi_config.yaml.
-    Uses the mixed_people/api_search endpoint (doesn't consume credits).
+    Uses the organizations/search endpoint.
     Returns search results with partial person/org data.
     """
     api_key = _get_api_key()
@@ -101,6 +166,13 @@ def search_apollo_leads(page: int = 1, per_page: int = 100) -> Dict:
 
     config = _load_config()
     params = _build_search_params(config)
+    
+    if location_override:
+        params["organization_locations"] = [loc.strip() for loc in location_override.split(",") if loc.strip()]
+        
+    if keywords_override:
+        params["q_organization_keyword_tags"] = [kw.strip() for kw in keywords_override.split(",") if kw.strip()]
+        
     params["page"] = page
     params["per_page"] = per_page
 
@@ -161,13 +233,33 @@ def search_apollo_leads(page: int = 1, per_page: int = 100) -> Dict:
                 continue
             seen_companies.add(company_name.lower())
 
+            website_url = org.get("website_url", "") or ""
+            about_text = _get_about_from_org(org)
+
+            # If description is missing, enrich via the dedicated endpoint
+            if not about_text and website_url:
+                domain = _extract_domain(website_url)
+                if domain:
+                    print(f"  🔍 Enriching {company_name} ({domain}) for company description...")
+                    enriched = _enrich_organization(domain, api_key)
+                    if enriched:
+                        about_text = _get_about_from_org(enriched)
+                        # Also backfill any other missing fields from enrichment
+                        if not org.get("phone") and enriched.get("phone"):
+                            org["phone"] = enriched["phone"]
+                        if not org.get("founded_year") and enriched.get("founded_year"):
+                            org["founded_year"] = enriched["founded_year"]
+                        if not org.get("annual_revenue") and enriched.get("annual_revenue"):
+                            org["annual_revenue"] = enriched["annual_revenue"]
+                    time.sleep(0.3)  # Rate limit protection
+
             lead = {
                 "company_name": company_name,
                 "person": person.get("name", ""),
                 "email": "",  # Free tier doesn't return emails
                 "primary_designation": person.get("title", ""),
-                "website": org.get("website_url", ""),
-                "about": org.get("short_description", "") or "",
+                "website": website_url,
+                "about": about_text,
                 "company_phone": org.get("phone", "") or "",
                 "company_linkedin": org.get("linkedin_url", "") or "",
                 "industry": org.get("industry", "") or "",
@@ -199,13 +291,32 @@ def search_apollo_leads(page: int = 1, per_page: int = 100) -> Dict:
                 continue
             seen_companies.add(company_name.lower())
 
+            website_url = org.get("website_url", "") or ""
+            about_text = _get_about_from_org(org)
+
+            # If description is missing, enrich via the dedicated endpoint
+            if not about_text and website_url:
+                domain = _extract_domain(website_url)
+                if domain:
+                    print(f"  🔍 Enriching {company_name} ({domain}) for company description...")
+                    enriched = _enrich_organization(domain, api_key)
+                    if enriched:
+                        about_text = _get_about_from_org(enriched)
+                        if not org.get("phone") and enriched.get("phone"):
+                            org["phone"] = enriched["phone"]
+                        if not org.get("founded_year") and enriched.get("founded_year"):
+                            org["founded_year"] = enriched["founded_year"]
+                        if not org.get("annual_revenue") and enriched.get("annual_revenue"):
+                            org["annual_revenue"] = enriched["annual_revenue"]
+                    time.sleep(0.3)  # Rate limit protection
+
             lead = {
                 "company_name": company_name,
                 "person": "",  # Missing in org search
                 "email": "", 
                 "primary_designation": "", # Missing in org search
-                "website": org.get("website_url", ""),
-                "about": org.get("short_description", "") or "",
+                "website": website_url,
+                "about": about_text,
                 "company_phone": org.get("phone", "") or "",
                 "company_linkedin": org.get("linkedin_url", "") or "",
                 "industry": org.get("industry", "") or "",
@@ -295,11 +406,15 @@ def export_leads_to_excel(leads: List[Dict], filename: str = "") -> str:
 
 
 def get_latest_export() -> Optional[str]:
-    """Get the most recent Apollo export file path."""
+    """Get the most recent Apollo export file path based on creation time."""
     if not OUTPUT_DIR.exists():
         return None
 
-    exports = sorted(OUTPUT_DIR.glob("apollo_leads_*.xlsx"), reverse=True)
-    if exports:
-        return str(exports[0])
-    return None
+    exports = list(OUTPUT_DIR.glob("apollo_leads_*.xlsx"))
+    if not exports:
+        return None
+        
+    # Sort by actual OS modification time rather than string alphabetization
+    import os
+    exports.sort(key=lambda x: os.path.getmtime(x), reverse=True)
+    return str(exports[0])

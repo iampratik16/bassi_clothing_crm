@@ -122,7 +122,7 @@ CASE STUDIES:
 
 WRITING GUIDELINES:
 - Tone: {guidelines.get('tone', 'Professional but approachable')}
-- Max length: {guidelines.get('max_word_count', 180)} words
+- Max length: {guidelines.get('max_word_count', 400)} words
 - AVOID: {', '.join(guidelines.get('avoid', []))}
 - INCLUDE: {', '.join(guidelines.get('include', []))}
 
@@ -130,25 +130,83 @@ IMPORTANT RULES:
 1. Always write in first person as a representative of {company.get('name', 'Bassi Clothing')}
 2. Use specific numbers (MOQ, lead times, prices) — never be vague
 3. Reference the prospect's brand/company specifically
-4. Keep emails under {guidelines.get('max_word_count', 180)} words
-5. End with a clear, low-pressure CTA (samples, catalog, 15-min call)
+4. Keep emails between 300-400 words — long enough to be complete, short enough to be readable
+5. NEVER cut off mid-sentence. Every sentence MUST be complete. This is NON-NEGOTIABLE.
 6. Never mention competitor names
 7. Sound human, not robotic — no buzzwords or corporate jargon
+8. Always include product recommendations as bullet points with proper spacing
+9. The email MUST end with the mandatory closing paragraph (see below) — NEVER omit it
 """
 
 
 EMAIL_TYPE_PROMPTS = {
-    "cold_outreach": """Write a personalized cold outreach email to {contact_name} at {company_name}.
-Company info: {about}
+    "cold_outreach": """Write a deeply personalized cold outreach email to {contact_name} at {company_name}.
+
+=== TARGET COMPANY PROFILE ===
+Company: {company_name}
+Company Description: {about}
 Country: {country}
 Industry: {industry}
 Employees: {employees}
+Revenue: {revenue}
+Founded: {founded}
 
-This is our FIRST email to them. Make it:
-- Personalized (reference something specific about their brand)
-- Problem-aware (mention a pain point relevant to their business)
-- Solution-oriented (briefly mention how we solve it)
-- Low-friction CTA (offer samples, catalog, or a quick 15-min call)
+=== OUR FULL PRODUCT CATALOG ===
+{product_recommendations}
+
+=== BASSI CLOTHING COMPANY DIFFERENTIATORS ===
+Many brands face challenges with long lead times (6-8 weeks from the Far East), high MOQs, and inconsistent quality across batches. We solve all three:
+- MOQ as low as 300 pieces per style
+- 90-100 day production turnaround
+- SEDEX 4 Pillar certified factory by SETMA, Zedd silver certification
+- Direct manufacturer — no middlemen markup
+
+CRITICAL PERSONALIZATION RULES:
+1. You MUST read the Company Description above carefully and reference SPECIFIC details about their brand (e.g., their style, product categories, brand values, history, or target customers).
+2. Based on the Company Description, identify which of our products are MOST RELEVANT to what this company sells. For example, if they sell streetwear, recommend hoodies and t-shirts. If they sell formal/smart-casual, recommend polo shirts. If they focus on sustainability, recommend organic products.
+3. List 2-4 of our most relevant products as BULLET POINTS. Each bullet MUST be on its own line with a BLANK LINE between bullets. Each bullet should include: product name, MOQ, FOB price, and one key feature. Use this EXACT format:
+
+• Product Name — MOQ X pieces, $X.XX-X.XX FOB, key feature here
+
+• Next Product — MOQ X pieces, $X.XX-X.XX FOB, key feature here
+
+• Third Product — MOQ X pieces, $X.XX-X.XX FOB, key feature here
+
+4. If they focus on sustainability, highlight our GOTS/Oeko-Tex certifications and organic products.
+5. If they are a luxury brand, emphasize our premium quality and custom capabilities.
+6. If they are a streetwear/casual brand, emphasize our hoodies, t-shirts, and joggers.
+
+MANDATORY EMAIL STRUCTURE (follow this order EXACTLY):
+
+SECTION 1 — PERSONALIZED GREETING (1-2 sentences):
+Open with "Hi {contact_name}," and a sentence referencing something specific about their brand from the Company Description.
+
+SECTION 2 — INTRODUCTION + FIT (2-3 sentences):
+Briefly introduce Bassi Clothing as a garment manufacturer and explain why we are a great fit for their specific brand.
+
+SECTION 3 — COMPANY DIFFERENTIATORS (include this paragraph):
+Include a paragraph mentioning that many brands face challenges with long lead times, high MOQs, and inconsistent quality, and that we solve these with:
+• MOQ as low as 300 pieces per style
+• 90-100 day production turnaround
+• SEDEX 4 Pillar certified factory by SETMA, Zedd silver certification
+• Direct manufacturer — no middlemen markup
+
+SECTION 4 — PRODUCT RECOMMENDATIONS (2-4 bullet points):
+Based on what the company sells, recommend 2-4 relevant products from our catalog. Format each as a bullet point with product name, MOQ, price, and a key feature. Put a BLANK LINE between each bullet point.
+
+SECTION 5 — MANDATORY CLOSING (copy this VERBATIM — do NOT change a single word):
+We work with fashion retailers across the UK and EU, and I'd love to explore if we could be a reliable manufacturing partner for your upcoming collections.
+
+Would a quick 15-minute call this week work to discuss your sourcing needs? I can also send over our catalog and samples — no commitment.
+
+CRITICAL FORMATTING RULES:
+- The email MUST be 300-400 words. Do NOT write less than 300 words.
+- Write COMPLETE sentences — NEVER cut off mid-sentence. If you run out of space, finish the sentence.
+- Put a blank line between each paragraph and between each bullet point.
+- Use plain English. NO special characters, NO unicode symbols, NO emojis.
+- Use only standard ASCII apostrophes (') and quotes (").
+- Do NOT include any sign-off like "Best regards" or "Warm regards" — the email ends after the "no commitment" line.
+- The last two paragraphs of the email MUST be the mandatory closing text above. This is NON-NEGOTIABLE.
 
 Return a JSON object with:
 {{"subject": "email subject line", "body": "email body text (plain text, no HTML)"}}""",
@@ -214,14 +272,39 @@ def generate_email(
     if lead.get("contacts"):
         contact = lead["contacts"][0]
 
+    # Use only first name for personalization (e.g., "Emma Lindström" → "Emma")
+    full_name = contact.get("name", "there") or "there"
+    first_name = full_name.split()[0] if full_name and full_name != "there" else "there"
+
+    # Build product recommendations based on the company's profile
+    products = _load_products()
+    about_text = lead.get("about", "") or ""
+    industry_text = lead.get("industry", "") or ""
+    profile_text = (about_text + " " + industry_text).lower()
+    
+    product_recs = []
+    for p in products:
+        relevance_keywords = (p.get("category", "") + " " + p.get("description", "")).lower()
+        # Add all products but order by rough relevance
+        product_recs.append(
+            f"- {p['name']} ({p['category']}): ${p.get('price_range_usd', 'N/A')} FOB, "
+            f"MOQ {p.get('moq', 'N/A')} pcs, {p.get('lead_time_days', 'N/A')}-day lead time, "
+            f"Fabrics: {', '.join(p.get('fabrics', [])[:2])}, "
+            f"Certifications: {', '.join(p.get('certifications', []))}"
+        )
+    product_recommendations = "\n".join(product_recs) if product_recs else "Full catalog available on request."
+
     context = {
         "company_name": lead.get("company_name", "your company"),
-        "contact_name": contact.get("name", "there") or "there",
-        "about": lead.get("about", "")[:500],
+        "contact_name": first_name,
+        "about": about_text[:800] if about_text else "No company details available — write a general but professional email.",
         "country": lead.get("country", "Europe"),
         "industry": lead.get("industry", "Fashion"),
         "employees": lead.get("employees", ""),
+        "revenue": lead.get("revenue", ""),
+        "founded": lead.get("founded", ""),
         "season": _get_season(),
+        "product_recommendations": product_recommendations,
     }
 
     if generation_method == "template":
@@ -257,6 +340,14 @@ def _generate_with_gemini(
 
     model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 
+    # Mandatory closing text — always appended if missing
+    MANDATORY_CLOSING = (
+        "\n\nWe work with fashion retailers across the UK and EU, and I'd love to explore "
+        "if we could be a reliable manufacturing partner for your upcoming collections."
+        "\n\nWould a quick 15-minute call this week work to discuss your sourcing needs? "
+        "I can also send over our catalog and samples — no commitment."
+    )
+
     try:
         # Build the full prompt with system instructions + user request
         full_prompt = f"""{system_prompt}
@@ -269,16 +360,32 @@ IMPORTANT: You MUST respond with ONLY a valid JSON object. No markdown, no code 
 Use escaped newlines (\\n) inside string values. Example format:
 {{"subject": "Subject line here", "body": "Line 1\\n\\nLine 2\\n\\nLine 3"}}"""
 
+        # Disable thinking so all output tokens go to the actual email content
+        # gemini-2.5-flash uses thinking by default, which consumes output tokens
+        try:
+            from google.genai import types
+            gen_config = types.GenerateContentConfig(
+                temperature=0.7,
+                max_output_tokens=8192,
+                thinking_config=types.ThinkingConfig(thinking_budget=0),
+            )
+        except (ImportError, AttributeError):
+            gen_config = {
+                "temperature": 0.7,
+                "max_output_tokens": 8192,
+            }
+
         response = client.models.generate_content(
             model=model,
             contents=full_prompt,
-            config={
-                "temperature": 0.7,
-                "max_output_tokens": 1200,
-            },
+            config=gen_config,
         )
 
         content = response.text.strip()
+        # Fix encoding: replace common unicode issues with ASCII equivalents
+        content = content.replace("\u2019", "'").replace("\u2018", "'").replace("\u201c", '"').replace("\u201d", '"')
+        content = content.replace("\u2013", "-").replace("\u2014", "-").replace("\u2026", "...").replace("\u00a0", " ")
+        content = content.replace("\xe2\x80\x99", "'").replace("\xe2\x80\x93", "-")
 
         # Clean up response — remove markdown code fences if present
         if content.startswith("```"):
@@ -339,6 +446,20 @@ Use escaped newlines (\\n) inside string values. Example format:
         if not result:
             raise ValueError(f"Could not parse Gemini response as JSON: {content[:300]}")
 
+        # Post-processing: ensure the mandatory closing is always present
+        body = result.get("body", "")
+        if "no commitment" not in body.lower():
+            # The mandatory closing was cut off — append it
+            body = body.rstrip()
+            # Clean up any incomplete sentence at the end
+            if body and not body[-1] in '.!?:':
+                # Find the last complete sentence
+                last_period = max(body.rfind('.'), body.rfind('!'), body.rfind('?'))
+                if last_period > len(body) * 0.5:  # Only trim if we'd keep at least half
+                    body = body[:last_period + 1]
+            body += MANDATORY_CLOSING
+            result["body"] = body
+
         return {
             "subject": result.get("subject", ""),
             "body": result.get("body", ""),
@@ -374,16 +495,16 @@ I came across {context['company_name']} and was impressed by your brand's approa
 Many brands like yours face challenges with long lead times (6-8 weeks from the Far East), high MOQs, and inconsistent quality across batches. We solve all three:
 
 • MOQ as low as 300 pieces per style
-• 20-30 day production turnaround
-• GOTS & Oeko-Tex certified manufacturing
+
+• 90-100 day production turnaround
+
+• SEDEX 4 Pillar certified factory by SETMA, Zedd silver certification
+
 • Direct manufacturer — no middlemen markup
 
 We work with fashion retailers across the UK and EU, and I'd love to explore if we could be a reliable manufacturing partner for your upcoming collections.
 
-Would a quick 15-minute call this week work to discuss your sourcing needs? I can also send over our catalog and samples — no commitment.
-
-Best regards,
-{company.get('name', 'Bassi Clothing')} Team""",
+Would a quick 15-minute call this week work to discuss your sourcing needs? I can also send over our catalog and samples — no commitment.""",
         },
         "follow_up_case_study": {
             "subject": f"Quick case study — how a {context['country']} brand saved 30% on manufacturing",
@@ -395,10 +516,7 @@ A mid-size {context['country']} fashion brand came to us with the same challenge
 
 We delivered 2,000 GOTS-certified hoodies in 22 days at 30% lower cost. They've since placed repeat orders for their SS26 collection.
 
-Would love to discuss how we could achieve similar results for {context['company_name']}. Shall I send over our portfolio?
-
-Best,
-{company.get('name', 'Bassi Clothing')} Team""",
+Would love to discuss how we could achieve similar results for {context['company_name']}. Shall I send over our portfolio?""",
         },
         "follow_up_samples": {
             "subject": f"Free samples for {context['company_name']} — no strings attached",
@@ -410,10 +528,7 @@ I'd like to send you free samples of our bestselling products — no commitment,
 
 We can have samples at your door within 7 business days.
 
-Interested? Just reply with your shipping address and which categories interest you (tees, hoodies, denim, activewear, or sustainable).
-
-Cheers,
-{company.get('name', 'Bassi Clothing')} Team""",
+Interested? Just reply with your shipping address and which categories interest you (tees, hoodies, denim, activewear, or sustainable).""",
         },
         "breakup": {
             "subject": f"Should I close your file, {context['contact_name']}?",
@@ -425,10 +540,7 @@ I don't want to be a bother, so I'll close your file for now.
 
 If sourcing ever becomes a priority — whether it's exploring new manufacturing partners, needing lower MOQs, or faster turnaround — my inbox is always open.
 
-Wishing {context['company_name']} continued success.
-
-Best,
-{company.get('name', 'Bassi Clothing')} Team""",
+Wishing {context['company_name']} continued success.""",
         },
     }
 

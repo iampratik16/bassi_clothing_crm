@@ -13,6 +13,8 @@ import uuid
 from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.mime.image import MIMEImage
+from email.mime.application import MIMEApplication
 from pathlib import Path
 from typing import List, Dict, Optional
 
@@ -93,6 +95,17 @@ def _text_to_html(text: str) -> str:
 def _build_html_email(body_text: str, send_id: str = "") -> str:
     """Build full HTML email with unsubscribe footer and tracking pixel."""
     body_html = _text_to_html(body_text)
+    
+    signature_html = """
+    <br/>
+    <p style='margin:16px 0 4px 0;'>Warm regards,</p>
+    <p style='margin:0 0 4px 0;'><strong>International Business Team</strong></p>
+    <p style='margin:0 0 4px 0;'>Bassi Clothing, Ludhiana</p>
+    <p style='margin:0 0 16px 0;'><a href="https://www.bassiclothing.in/" style="color:#0056b3;text-decoration:none;">bassiclothing.in</a></p>
+    <img src="cid:company_logo" alt="Bassi Clothing Logo" width="150" />
+    """
+    body_html += signature_html
+
     unsubscribe = UNSUBSCRIBE_HTML.format(
         sender_email=SENDER_EMAIL,
         company_name=SENDER_NAME,
@@ -136,6 +149,7 @@ def _log_send(email_data: Dict, status: str, error: str = ""):
         "to_name": email_data.get("contact_name", ""),
         "company": email_data.get("company_name", ""),
         "subject": email_data.get("subject", ""),
+        "body": email_data.get("body", ""),
         "email_type": email_data.get("email_type", ""),
         "campaign_id": email_data.get("campaign_id", ""),
         "status": status,
@@ -168,6 +182,7 @@ def send_email(
         "to_email": to_email,
         "contact_name": to_name,
         "subject": subject,
+        "body": body,
         "send_id": send_id,
     })
 
@@ -190,16 +205,57 @@ def send_email(
     # Build email with tracking pixel
     html_body = _build_html_email(body, send_id=send_id)
 
-    msg = MIMEMultipart("alternative")
+    plain_signature = (
+        "\n\nWarm regards,\n"
+        "International Business Team\n"
+        "Bassi Clothing, Ludhiana\n"
+        "bassiclothing.in\n"
+    )
+    full_body = body + plain_signature
+
+    msg = MIMEMultipart("mixed")
     msg["Subject"] = subject
     msg["From"] = f"{SENDER_NAME} <{SENDER_EMAIL}>"
     msg["To"] = f"{to_name} <{to_email}>" if to_name else to_email
     msg["Reply-To"] = SENDER_EMAIL
     msg["List-Unsubscribe"] = f"<mailto:{SENDER_EMAIL}?subject=Unsubscribe>"
 
-    # Attach both plain text and HTML versions
-    msg.attach(MIMEText(body, "plain"))
-    msg.attach(MIMEText(html_body, "html"))
+    msg_related = MIMEMultipart("related")
+    msg_alternative = MIMEMultipart("alternative")
+
+    # Attach text and html to alternative
+    msg_alternative.attach(MIMEText(full_body, "plain"))
+    msg_alternative.attach(MIMEText(html_body, "html"))
+
+    msg_related.attach(msg_alternative)
+
+    # Attach inline logo
+    logo_path = BASE_DIR / "Logo.png"
+    if logo_path.exists():
+        try:
+            with open(logo_path, "rb") as f:
+                img_data = f.read()
+            msg_image = MIMEImage(img_data)
+            msg_image.add_header("Content-ID", "<company_logo>")
+            msg_image.add_header("Content-Disposition", "inline", filename="Logo.png")
+            msg_related.attach(msg_image)
+        except Exception as e:
+            print(f"Failed to attach logo: {e}")
+
+    # Attach related to mixed
+    msg.attach(msg_related)
+
+    # Attach brochure
+    brochure_path = BASE_DIR / "brochure.pdf"
+    if brochure_path.exists():
+        try:
+            with open(brochure_path, "rb") as f:
+                pdf_data = f.read()
+            msg_pdf = MIMEApplication(pdf_data, _subtype="pdf")
+            msg_pdf.add_header("Content-Disposition", "attachment", filename="Bassi_Clothing_Brochure.pdf")
+            msg.attach(msg_pdf)
+        except Exception as e:
+            print(f"Failed to attach brochure: {e}")
 
     if DRY_RUN:
         _log_send(email_data, "dry_run")

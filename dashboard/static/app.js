@@ -12,6 +12,7 @@ let lastGeneratedEmail = null;
 let currentPage = 'dashboard';
 let selectedBulkEmails = new Set();
 let selectedLeadIds = new Set();
+let lastApolloExcelPath = null;
 
 // ─── Init ───
 document.addEventListener('DOMContentLoaded', () => {
@@ -48,6 +49,7 @@ function showPage(page) {
     case 'bulk-email': loadBulkEmail(); break;
     case 'email-gen': loadEmailGenOptions(); break;
     case 'campaigns': loadCampaigns(); break;
+    case 'sent-mails': loadSentMails(); break;
     case 'replies': loadReplies(); break;
     case 'pipeline': loadPipeline(); break;
     case 'scoring': loadScoring(); break;
@@ -61,34 +63,72 @@ function showPage(page) {
 //  DASHBOARD
 // ═══════════════════════════════════════════════════════════════
 
-async function loadDashboard() {
+let lastDashboardStats = {
+  totalLeads: null,
+  withEmail: null,
+  contacted: null,
+  replied: null,
+  meetings: null,
+  inBin: null
+};
+
+function updateDashboardStat(elementId, newValue, oldValue, isRefresh) {
+  const el = document.getElementById(elementId);
+  if (!el) return;
+  
+  if (!isRefresh || oldValue === null || oldValue === newValue) {
+    el.innerHTML = newValue;
+    return;
+  }
+  
+  const diff = newValue - oldValue;
+  const color = diff > 0 ? 'var(--accent-emerald)' : 'var(--accent-rose)';
+  const sign = diff > 0 ? '+' : '';
+  const arrow = diff > 0 ? '↑' : '↓';
+  
+  el.innerHTML = `${newValue} <span style="font-size: 0.55em; font-weight: 600; color: ${color}; margin-left: 8px; vertical-align: middle;">${arrow} ${sign}${diff}</span>`;
+}
+
+async function loadDashboard(isRefresh = false) {
+  const btn = document.getElementById('btn-refresh-dashboard');
+  if (isRefresh && btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="loading-spinner"></span> Refreshing...';
+  }
+
   try {
     const res = await fetch(`${API}/api/leads/stats/pipeline`);
     const stats = await res.json();
 
-    document.getElementById('stat-total-leads').textContent = stats.total_leads || 0;
-    document.getElementById('stat-with-email').textContent = stats.with_email || 0;
+    let totalLeads = stats.total_leads || 0;
+    let withEmail = stats.with_email || 0;
+    let contacted = stats.by_stage?.contacted || 0;
+    let replied = stats.by_stage?.replied || 0;
+    let meetings = stats.by_stage?.meeting_booked || 0;
+    let inBin = stats.in_bin || 0;
     
     // Fetch actual total sent emails across all logs to sync "Contacted"
     try {
       const syncRes = await fetch(`${API}/api/campaigns/sync`, { method: 'POST' });
       const syncStats = await syncRes.json();
-      document.getElementById('stat-contacted').textContent = syncStats.total_sent || 0;
-    } catch (e) {
-      document.getElementById('stat-contacted').textContent = stats.by_stage?.contacted || 0;
-    }
+      contacted = syncStats.total_sent || contacted;
+    } catch (e) {}
     
     // Fetch actual total replies to keep dashboard synced with Replies tab
     try {
       const repliesRes = await fetch(`${API}/api/replies/stats`);
       const repliesStats = await repliesRes.json();
-      document.getElementById('stat-replied').textContent = repliesStats.total_replies || 0;
-    } catch (e) {
-      document.getElementById('stat-replied').textContent = stats.by_stage?.replied || 0;
-    }
-    
-    document.getElementById('stat-meetings').textContent = stats.by_stage?.meeting_booked || 0;
-    document.getElementById('stat-in-bin').textContent = stats.in_bin || 0;
+      replied = repliesStats.total_replies || replied;
+    } catch (e) {}
+
+    updateDashboardStat('stat-total-leads', totalLeads, lastDashboardStats.totalLeads, isRefresh);
+    updateDashboardStat('stat-with-email', withEmail, lastDashboardStats.withEmail, isRefresh);
+    updateDashboardStat('stat-contacted', contacted, lastDashboardStats.contacted, isRefresh);
+    updateDashboardStat('stat-replied', replied, lastDashboardStats.replied, isRefresh);
+    updateDashboardStat('stat-meetings', meetings, lastDashboardStats.meetings, isRefresh);
+    updateDashboardStat('stat-in-bin', inBin, lastDashboardStats.inBin, isRefresh);
+
+    lastDashboardStats = { totalLeads, withEmail, contacted, replied, meetings, inBin };
 
     // Update badges
     const badge = document.getElementById('leads-count-badge');
@@ -103,17 +143,12 @@ async function loadDashboard() {
     // Country breakdown
     const countryDiv = document.getElementById('country-breakdown');
     if (stats.by_country) {
-      const countryFlags = {
-        'United Kingdom': '🇬🇧', 'France': '🇫🇷', 'Germany': '🇩🇪',
-        'Netherlands': '🇳🇱', 'Sweden': '🇸🇪', 'Denmark': '🇩🇰',
-        'Italy': '🇮🇹', 'Spain': '🇪🇸', 'Belgium': '🇧🇪', 'Ireland': '🇮🇪',
-      };
       const total = stats.total_leads || 1;
       countryDiv.innerHTML = Object.entries(stats.by_country)
         .filter(([_, count]) => count > 0)
         .map(([country, count]) => {
           const pct = Math.round(count / total * 100);
-          const flag = countryFlags[country] || '🌍';
+          const flag = getFlag(country);
           return `
             <div style="margin-bottom:12px;">
               <div class="flex-between mb-1">
@@ -149,8 +184,16 @@ async function loadDashboard() {
         }).join('');
     }
 
+    if (isRefresh) showToast('✅ Dashboard refreshed', 'success');
   } catch (e) {
     console.error('Dashboard load error:', e);
+    if (isRefresh) showToast('❌ Failed to refresh dashboard', 'error');
+  } finally {
+    const btn = document.getElementById('btn-refresh-dashboard');
+    if (isRefresh && btn) {
+      btn.disabled = false;
+      btn.innerHTML = '🔄 Refresh Dashboard';
+    }
   }
 }
 
@@ -158,18 +201,143 @@ async function loadDashboard() {
 //  APOLLO SEARCH
 // ═══════════════════════════════════════════════════════════════
 
+function toggleApolloSelectAll() {
+  const selectAll = document.getElementById('apollo-select-all');
+  const checkboxes = document.querySelectorAll('.apollo-row-checkbox');
+  checkboxes.forEach(cb => cb.checked = selectAll.checked);
+}
+
+function changeApolloPage(delta) {
+  const pageInput = document.getElementById('apollo-filter-page');
+  if (!pageInput) return;
+  let currentPage = parseInt(pageInput.value) || 1;
+  currentPage += delta;
+  if (currentPage < 1) currentPage = 1;
+  pageInput.value = currentPage;
+  
+  // Auto-trigger a new search on page change
+  triggerApolloSearch();
+}
+
+function clearApolloSearch() {
+  const pageInput = document.getElementById('apollo-filter-page');
+  const locationInput = document.getElementById('apollo-filter-location');
+  const keywordInput = document.getElementById('apollo-filter-keywords');
+  
+  if (pageInput) pageInput.value = '1';
+  if (locationInput) locationInput.value = '';
+  if (keywordInput) keywordInput.value = '';
+  
+  apolloSearchCache = {};
+  
+  const resultsDiv = document.getElementById('apollo-results');
+  if (resultsDiv) resultsDiv.style.display = 'none';
+  
+  const downloadBtn = document.getElementById('btn-apollo-download');
+  const exportBtn = document.getElementById('btn-apollo-export-crm');
+  if (downloadBtn) downloadBtn.style.display = 'none';
+  if (exportBtn) exportBtn.style.display = 'none';
+  
+  showToast('🧹 Search cleared. Ready for a fresh search!', 'info');
+}
+
+let apolloSearchCache = {};
+
+function renderApolloResults(data, fromCache = false) {
+  const leads = data.leads || [];
+  if (data.excel_path) lastApolloExcelPath = data.excel_path;
+  const resultsDiv = document.getElementById('apollo-results');
+  resultsDiv.style.display = 'block';
+
+  // Stats
+  document.getElementById('apollo-stats').innerHTML = `
+    <div class="stat-card">
+      <div class="stat-icon">🏢</div>
+      <div class="stat-value">${leads.length}</div>
+      <div class="stat-label">Companies Found</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">🌍</div>
+      <div class="stat-value">${data.total || 0}</div>
+      <div class="stat-label">Total Matches</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">📧</div>
+      <div class="stat-value">0</div>
+      <div class="stat-label">Emails (scrape from Apollo)</div>
+    </div>
+  `;
+
+  document.getElementById('apollo-results-count').textContent = `${leads.length} leads`;
+
+  // Table
+  const tbody = document.getElementById('apollo-table-body');
+  tbody.innerHTML = leads.map((l, idx) => `
+    <tr>
+      <td><input type="checkbox" class="apollo-row-checkbox" value="${idx}" checked></td>
+      <td>
+        <div style="font-weight:600;color:var(--text-heading);">${escHtml(l.company_name)}</div>
+        ${l.website ? `<div style="font-size:0.72rem;color:var(--text-muted);">${escHtml(l.website)}</div>` : ''}
+      </td>
+      <td>${escHtml(l.person || '-')}</td>
+      <td>${escHtml(l.primary_designation || '-')}</td>
+      <td>${getFlag(l.country)} ${escHtml(l.country || 'N/A')}</td>
+      <td>${escHtml(l.industry || '-')}</td>
+      <td>${l.employees || '-'}</td>
+    </tr>
+  `).join('');
+
+  // Show download buttons
+  document.getElementById('btn-apollo-download').style.display = 'inline-flex';
+  document.getElementById('btn-apollo-export-crm').style.display = 'inline-flex';
+
+  if (fromCache) {
+    showToast(`⚡ Instantly loaded ${leads.length} leads from cache!`, 'success');
+  } else {
+    showToast(`✅ Found ${leads.length} leads! Excel ready for download.`, 'success');
+  }
+}
+
 async function triggerApolloSearch() {
   const btn = document.getElementById('btn-apollo-search');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="loading-spinner"></span> Searching Apollo...';
+  
+  const pageInput = document.getElementById('apollo-filter-page');
+  const locationInput = document.getElementById('apollo-filter-location');
+  const keywordInput = document.getElementById('apollo-filter-keywords');
+  const limitInput = document.getElementById('apollo-filter-limit');
+  
+  const page = pageInput ? parseInt(pageInput.value) || 1 : 1;
+  const perPage = limitInput ? parseInt(limitInput.value) || 100 : 100;
+  const locationOverride = locationInput ? locationInput.value.trim() : "";
+  const keywordOverride = keywordInput ? keywordInput.value.trim() : "";
 
+  const cacheKey = `${page}-${perPage}-${locationOverride}-${keywordOverride}`;
+  
+  if (apolloSearchCache[cacheKey]) {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '🔍 Search Apollo';
+    }
+    renderApolloResults(apolloSearchCache[cacheKey], true);
+    return;
+  }
+
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="loading-spinner"></span> Searching Apollo...';
+  }
   showToast('🔍 Searching Apollo with your ICP filters...', 'info');
 
   try {
     const res = await fetch(`${API}/api/apollo/search`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ page: 1, per_page: 100 }),
+      body: JSON.stringify({ 
+        page: page, 
+        per_page: perPage,
+        location: locationOverride,
+        keywords: keywordOverride
+      }),
     });
     const data = await res.json();
 
@@ -180,51 +348,8 @@ async function triggerApolloSearch() {
       return;
     }
 
-    const leads = data.leads || [];
-    const resultsDiv = document.getElementById('apollo-results');
-    resultsDiv.style.display = 'block';
-
-    // Stats
-    document.getElementById('apollo-stats').innerHTML = `
-      <div class="stat-card">
-        <div class="stat-icon">🏢</div>
-        <div class="stat-value">${leads.length}</div>
-        <div class="stat-label">Companies Found</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon">🌍</div>
-        <div class="stat-value">${data.total || 0}</div>
-        <div class="stat-label">Total Matches</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon">📧</div>
-        <div class="stat-value">0</div>
-        <div class="stat-label">Emails (scrape from Apollo)</div>
-      </div>
-    `;
-
-    document.getElementById('apollo-results-count').textContent = `${leads.length} leads`;
-
-    // Table
-    const tbody = document.getElementById('apollo-table-body');
-    tbody.innerHTML = leads.map(l => `
-      <tr>
-        <td>
-          <div style="font-weight:600;color:var(--text-heading);">${escHtml(l.company_name)}</div>
-          ${l.website ? `<div style="font-size:0.72rem;color:var(--text-muted);">${escHtml(l.website)}</div>` : ''}
-        </td>
-        <td>${escHtml(l.person || '-')}</td>
-        <td>${escHtml(l.primary_designation || '-')}</td>
-        <td>${getFlag(l.country)} ${escHtml(l.country || 'N/A')}</td>
-        <td>${escHtml(l.industry || '-')}</td>
-        <td>${l.employees || '-'}</td>
-      </tr>
-    `).join('');
-
-    // Show download button
-    document.getElementById('btn-apollo-download').style.display = 'inline-flex';
-
-    showToast(`✅ Found ${leads.length} leads! Excel ready for download.`, 'success');
+    apolloSearchCache[cacheKey] = data;
+    renderApolloResults(data, false);
 
   } catch (e) {
     showToast('❌ Apollo search failed: ' + e.message, 'error');
@@ -237,6 +362,50 @@ async function triggerApolloSearch() {
 function downloadApolloExcel() {
   window.open(`${API}/api/apollo/download`, '_blank');
   showToast('📥 Downloading Excel...', 'info');
+}
+
+async function exportApolloToCrm() {
+  if (!lastApolloExcelPath) {
+    showToast('❌ No export available to import to CRM.', 'error');
+    return;
+  }
+  
+  const checkboxes = document.querySelectorAll('.apollo-row-checkbox:checked');
+  const selectedIndices = Array.from(checkboxes).map(cb => parseInt(cb.value));
+  
+  if (selectedIndices.length === 0) {
+    showToast('❌ Please select at least one lead to export.', 'error');
+    return;
+  }
+  
+  const btn = document.getElementById('btn-apollo-export-crm');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="loading-spinner"></span> Exporting...';
+
+  try {
+    const res = await fetch(`${API}/api/apollo/export-to-crm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        excel_path: lastApolloExcelPath,
+        selected_indices: selectedIndices
+      }),
+    });
+    const data = await res.json();
+    
+    if (data.error) {
+      showToast(`❌ CRM Export failed: ${data.error}`, 'error');
+    } else {
+      showToast(`✅ Successfully imported ${data.total_imported} new leads to CRM!`, 'success');
+      loadDashboard();
+      closeModal(); // If modal is open
+    }
+  } catch (e) {
+    showToast('❌ Export failed: ' + e.message, 'error');
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = '⚡ Export to CRM';
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -382,19 +551,36 @@ async function generateAllEmails() {
   const btn = document.getElementById('btn-generate-all');
 
   btn.disabled = true;
-  btn.innerHTML = '<span class="loading-spinner"></span> Generating with Gemini Pro...';
+  const methodLabel = generationMethod === 'ai' ? 'AI' : 'Template';
+  btn.innerHTML = '<span class="loading-spinner"></span> Generating...';
 
   // Show progress
   const progress = document.getElementById('bulk-progress');
   progress.style.display = 'block';
-  document.getElementById('bulk-progress-text').textContent = 'Generating personalized emails with Gemini Pro...';
+  document.getElementById('bulk-progress-text').textContent = `Generating personalized emails (${methodLabel})...`;
   document.getElementById('bulk-progress-bar').style.width = '30%';
 
   try {
+    // Collect selected lead IDs (if any emails are already generated and selected)
+    const selectedLeadIds = [];
+    if (generatedEmails.length > 0 && selectedBulkEmails.size > 0 && selectedBulkEmails.size < generatedEmails.length) {
+      // Only pass lead_ids when a subset is selected
+      selectedBulkEmails.forEach(i => {
+        if (generatedEmails[i] && generatedEmails[i].lead_id) {
+          selectedLeadIds.push(generatedEmails[i].lead_id);
+        }
+      });
+    }
+
+    const requestBody = { email_type: emailType, generation_method: generationMethod };
+    if (selectedLeadIds.length > 0) {
+      requestBody.lead_ids = selectedLeadIds;
+    }
+
     const res = await fetch(`${API}/api/emails/generate-all`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email_type: emailType, generation_method: generationMethod }),
+      body: JSON.stringify(requestBody),
     });
 
     document.getElementById('bulk-progress-bar').style.width = '90%';
@@ -405,7 +591,7 @@ async function generateAllEmails() {
       showToast(`❌ ${data.error}`, 'error');
       progress.style.display = 'none';
       btn.disabled = false;
-      btn.innerHTML = '✨ Generate All Emails (Gemini Pro)';
+      btn.innerHTML = '⚡ Generate';
       return;
     }
 
@@ -431,7 +617,7 @@ async function generateAllEmails() {
   }
 
   btn.disabled = false;
-  btn.innerHTML = '✨ Generate All Emails (Gemini Pro)';
+  btn.innerHTML = '⚡ Generate';
 }
 
 function renderBulkEmails(emails) {
@@ -765,7 +951,8 @@ async function loadLeads() {
   try {
     const res = await fetch(`${API}/api/leads`);
     const data = await res.json();
-    allLeads = data.leads || [];
+    // Reverse the array so newly appended leads appear vividly at the top of the list!
+    allLeads = (data.leads || []).reverse();
     selectedLeadIds.clear();
     renderLeadsTable(allLeads);
     updateLeadSelectionUI();
@@ -943,24 +1130,8 @@ async function sendSelectedLeadsToBulk() {
 }
 
 async function importLeads() {
-  showToast('📥 Importing leads from CSV...', 'info');
-  try {
-    const res = await fetch(`${API}/api/leads/import`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
-    });
-    const data = await res.json();
-    if (data.error) {
-      showToast(`❌ ${data.error}`, 'error');
-    } else {
-      showToast(`✅ Imported ${data.total_imported} leads! Total: ${data.total_in_database}`, 'success');
-      loadDashboard();
-      if (currentPage === 'leads') loadLeads();
-    }
-  } catch (e) {
-    showToast('❌ Import failed: ' + e.message, 'error');
-  }
+  // Redirect to the Upload Emails page instead of importing old Apollo leads
+  showPage('upload-emails');
 }
 
 function viewLeadDetail(leadId) {
@@ -1246,6 +1417,114 @@ function renderScoreBreakdown(scores) {
         <span class="score-value" style="color:${color};">${score}</span>
       </div>`;
   }).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  SENT MAILS
+// ═══════════════════════════════════════════════════════════════
+
+let allSentMails = [];
+
+async function loadSentMails() {
+  try {
+    const res = await fetch(`${API}/api/sent-mails`);
+    const data = await res.json();
+    allSentMails = data.sent_mails || [];
+    renderSentMails(allSentMails);
+  } catch (e) {
+    console.error('Failed to load sent mails:', e);
+    showToast('❌ Failed to load sent mails', 'error');
+  }
+}
+
+function renderSentMails(mails) {
+  const tbody = document.getElementById('sent-mails-table-body');
+  if (!mails.length) {
+    tbody.innerHTML = `<tr><td colspan="7">
+      <div class="empty-state">
+        <div class="empty-icon">📨</div>
+        <h3>No sent mails</h3>
+        <p>Sent emails will appear here</p>
+      </div>
+    </td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = mails.map((mail, index) => {
+    const dt = new Date(mail.timestamp);
+    const dateStr = dt.toLocaleDateString() + ' ' + dt.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+    
+    // Status visual
+    let statusBadge = '';
+    if (mail.status === 'sent') statusBadge = '<span class="badge badge-replied">Sent</span>';
+    else if (mail.status === 'dry_run') statusBadge = '<span class="badge badge-contacted">Dry Run</span>';
+    else if (mail.status === 'error' || mail.status === 'bounced') statusBadge = `<span class="badge badge-lost">${mail.status}</span>`;
+    else statusBadge = `<span class="badge" style="background:var(--text-muted);">${mail.status}</span>`;
+
+    return `
+      <tr>
+        <td style="font-size:0.85rem;">${dateStr}</td>
+        <td>
+          <div style="font-weight:500;">${escHtml(mail.to_name || '-')}</div>
+          <div style="font-size:0.8rem;color:var(--text-muted);">${escHtml(mail.to_email || 'N/A')}</div>
+        </td>
+        <td>${escHtml(mail.company || '-')}</td>
+        <td style="max-width:250px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escHtml(mail.subject)}">
+          ${escHtml(mail.subject || '-')}
+        </td>
+        <td>${mail.is_bulk ? 'Bulk' : 'Single'}<br/><span style="font-size:0.75rem;color:var(--text-muted);">${escHtml(mail.email_type || 'outreach')}</span></td>
+        <td>${statusBadge}</td>
+        <td>
+          <button class="btn btn-sm btn-secondary" onclick="viewSentMailDetails(${index})">👁️ View</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function viewSentMailDetails(index) {
+  const mail = allSentMails[index];
+  if (!mail) return;
+
+  const dt = new Date(mail.timestamp);
+  const dateStr = dt.toLocaleString();
+
+  const modal = document.getElementById('modal-content');
+  modal.innerHTML = `
+    <div class="modal-header">
+      <h3>Sent Email Details</h3>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <div style="margin-bottom:16px;">
+      <table style="width:100%; border-collapse: collapse; font-size: 0.9rem;">
+        <tr>
+          <td style="padding: 8px; border-bottom: 1px solid var(--border-color); width: 120px; font-weight: 600; color: var(--text-secondary);">Sent On</td>
+          <td style="padding: 8px; border-bottom: 1px solid var(--border-color);">${dateStr}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px; border-bottom: 1px solid var(--border-color); font-weight: 600; color: var(--text-secondary);">To</td>
+          <td style="padding: 8px; border-bottom: 1px solid var(--border-color);">${escHtml(mail.to_name || '')} &lt;${escHtml(mail.to_email || 'N/A')}&gt;</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px; border-bottom: 1px solid var(--border-color); font-weight: 600; color: var(--text-secondary);">Company</td>
+          <td style="padding: 8px; border-bottom: 1px solid var(--border-color);">${escHtml(mail.company || '-')}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px; border-bottom: 1px solid var(--border-color); font-weight: 600; color: var(--text-secondary);">Subject</td>
+          <td style="padding: 8px; border-bottom: 1px solid var(--border-color); font-weight: 500;">${escHtml(mail.subject || '-')}</td>
+        </tr>
+      </table>
+    </div>
+    
+    <div style="font-weight: 600; color: var(--text-secondary); margin-bottom: 8px; font-size: 0.9rem;">Message Body</div>
+    <div style="background: var(--bg-default); padding: 16px; border-radius: 8px; font-size: 0.9rem; line-height: 1.6; white-space: pre-wrap; overflow-y: auto; max-height: 300px; border: 1px solid var(--border-color);">${escHtml(mail.body || 'No content available (message body was not recorded in legacy logs). Future sends will capture the full text.')}</div>
+    
+    ${mail.error ? `
+    <div style="margin-top: 16px; padding: 12px; background: rgba(244, 63, 94, 0.1); border-left: 4px solid var(--accent-rose); border-radius: 4px; font-size: 0.85rem;">
+      <strong>Error:</strong> ${escHtml(mail.error)}
+    </div>` : ''}
+  `;
+  document.getElementById('modal-overlay').classList.add('active');
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1565,7 +1844,13 @@ async function loadPipeline() {
 //  SCORING
 // ═══════════════════════════════════════════════════════════════
 
-async function loadScoring() {
+async function loadScoring(isRefresh = false) {
+  const btn = document.getElementById('btn-refresh-scores');
+  if (isRefresh && btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="loading-spinner"></span> Calculating...';
+  }
+
   try {
     const res = await fetch(`${API}/api/scoring`);
     const data = await res.json();
@@ -1606,10 +1891,15 @@ async function loadScoring() {
         </tr>`;
     }).join('');
 
-    showToast('✅ Scores calculated!', 'success');
+    if (isRefresh) showToast('✅ Scores calculated!', 'success');
   } catch (e) {
     console.error('Scoring error:', e);
-    showToast('❌ Scoring failed', 'error');
+    if (isRefresh) showToast('❌ Scoring failed', 'error');
+  } finally {
+    if (isRefresh && btn) {
+      btn.disabled = false;
+      btn.innerHTML = '🔄 Refresh Scores';
+    }
   }
 }
 
@@ -1725,14 +2015,20 @@ function escHtml(str) {
 }
 
 function getFlag(country) {
+  if (!country || country.trim().toLowerCase() === 'unknown') return '';
+  const normalized = country.trim();
   const flags = {
     'United Kingdom': '🇬🇧', 'France': '🇫🇷', 'Germany': '🇩🇪',
     'Netherlands': '🇳🇱', 'Sweden': '🇸🇪', 'Denmark': '🇩🇰',
     'Italy': '🇮🇹', 'Spain': '🇪🇸', 'Belgium': '🇧🇪', 'Ireland': '🇮🇪',
     'Portugal': '🇵🇹', 'Norway': '🇳🇴', 'Finland': '🇫🇮', 'Austria': '🇦🇹',
     'Hungary': '🇭🇺', 'Poland': '🇵🇱', 'Australia': '🇦🇺',
+    'United States': '🇺🇸', 'USA': '🇺🇸', 'US': '🇺🇸',
+    'India': '🇮🇳', 'Canada': '🇨🇦', 'Switzerland': '🇨🇭',
+    'Brazil': '🇧🇷', 'Mexico': '🇲🇽', 'Japan': '🇯🇵', 'China': '🇨🇳',
+    'South Africa': '🇿🇦', 'New Zealand': '🇳🇿', 'Singapore': '🇸🇬'
   };
-  return flags[country] || '🌍';
+  return flags[normalized] || '🌍';
 }
 
 function showToast(message, type = 'info') {
