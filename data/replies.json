@@ -1,1 +1,44 @@
-[]
+[
+  {
+    "id": "reply_20260410121510_0",
+    "message_id": "<CAJ8LvXOKjdbGx3gKGzi4XNqQyf1ds6ieC_-2z-wafEcAjRwybg@mail.gmail.com>",
+    "from_email": "laura@withnothingunderneath.com",
+    "from_name": "Laura Hilton",
+    "lead_id": "7fe1dedd",
+    "company_name": "With Nothing Underneath",
+    "subject": "Away from my desk Re: Exploring a Reliable Manufacturing Partner for With Nothing Underneath",
+    "body_preview": "Hi, I am out of the office with limited access to my email. I will respond\nto your email upon my return on Monday 13th April. For any urgent queries, please reach out to dipen@withnothingunderneath.com. Thank you\nLaura -- Laura Hilton COO Email: laura@withnothingunderneath.com Web: www.withnothingunderneath.co <http://www.withnothingunderneath.com/>m Office: WNU, Unit 5G Hewlett House, Palmerston Way, London, SW8 4AS Deliveries: WNU Unit 5G, Hewlett House, 5 Havelock terrace SW8 4AS",
+    "received_at": "2026-04-09T23:42:01-07:00",
+    "scanned_at": "2026-04-10T12:15:10.134666",
+    "read": true,
+    "sentiment": "neutral"
+  },
+  {
+    "id": "reply_20260410103217_0",
+    "message_id": "<CAOrZnxtjGzx617R9u-J30GRMUqcXfm=-mcOE8xHjVEunoM+SQQ@mail.gmail.com>",
+    "from_email": "daniella@linzi.com",
+    "from_name": "Daniella Morris",
+    "lead_id": "09dd9d42",
+    "company_name": "Linzi",
+    "subject": "Out Of Office Re: Exploring manufacturing partnership for Linzi's collections",
+    "body_preview": "Hi,\r\n\r\nThank you for your email.\r\n\r\nI am currently on maternity leave, so I won’t be fully available\r\nday-to-day. However, I will still be checking emails occasionally and\r\nwill do my best to pass your message on to the relevant member of my\r\nteam where needed.\r\n\r\nIf your enquiry is urgent, please include “URGENT” in the subject line\r\nso I can ensure it reaches the right person as quickly as possible.\r\n\r\nAlternatively please email mike@linzi.com\r\n\r\nThank you for your understanding.\r\n\r\nBest regar",
+    "received_at": "2026-04-08T01:48:28-07:00",
+    "scanned_at": "2026-04-10T10:32:17.798503",
+    "read": true,
+    "sentiment": "neutral"
+  },
+  {
+    "id": "reply_20260410103219_1",
+    "message_id": "<2E5E4770-10AF-4591-A343-FBD994312060@wear-london.co.uk>",
+    "from_email": "jimbender@wear-london.co.uk",
+    "from_name": "Jim Bender",
+    "lead_id": "fee4c8fc",
+    "company_name": "Wear London",
+    "subject": "Re: Exploring manufacturing partnership for Wear London's collections",
+    "body_preview": "Thank you for your email. We manufacture all of our products in the UK. Regards Jim 07850 365778",
+    "received_at": "2026-04-08T10:34:46+01:00",
+    "scanned_at": "2026-04-10T10:32:19.157317",
+    "read": true,
+    "sentiment": "neutral"
+  }
+]

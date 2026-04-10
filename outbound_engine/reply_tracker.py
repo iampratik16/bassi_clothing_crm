@@ -99,6 +99,66 @@ def _extract_body(msg) -> str:
     return body.strip()
 
 
+def _strip_quoted_reply(text: str) -> str:
+    """
+    Strip quoted original email from a reply, returning only the
+    actual reply content the sender wrote.
+    Handles common quoting styles:
+      - "On <date>, <person> wrote:"  (Gmail / Apple Mail)
+      - "> " prefixed quote lines
+      - Outlook "From: / Sent: / To:" headers
+      - Long separator lines ("____" or "----")
+    """
+    if not text:
+        return ""
+
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    reply_lines: list[str] = []
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Stop at "> " quoted blocks
+        if stripped.startswith(">"):
+            break
+
+        # Stop at "On <date> ... wrote:" (Gmail / Apple Mail)
+        if re.match(r"^On .+ wrote:$", stripped):
+            break
+        # Also catch multi-word "On ... at ..., ... wrote:" on one line
+        if stripped.startswith("On ") and "wrote:" in stripped:
+            break
+
+        # Stop at Outlook-style header blocks
+        if stripped.startswith("From:") and ("Sent:" in text or "To:" in text):
+            break
+        if stripped == "------- Original Message -------":
+            break
+
+        # Stop at long separator lines
+        if re.match(r"^[_\-=]{10,}$", stripped):
+            break
+
+        reply_lines.append(line)
+
+    # Also handle the case where the quoting marker is inline
+    # (HTML-stripped emails may collapse everything onto one line)
+    result = "\n".join(reply_lines).strip()
+    # Catch inline "On DD Mon YYYY, at HH:MM, ... wrote:" within a single line
+    result = re.split(
+        r"\s*On \d{1,2} \w{3} \d{4},? at \d{1,2}:\d{2}.+?wrote:",
+        result,
+        maxsplit=1,
+    )[0].strip()
+
+    # Clean up HTML entities that survived tag stripping
+    result = result.replace("&nbsp;", " ").replace("&amp;", "&")
+    result = re.sub(r"&lt;.*?&gt;", "", result)  # remove escaped email tags
+    result = re.sub(r"\s{2,}", " ", result).strip()
+
+    return result
+
+
 def scan_inbox(days: int = None) -> Dict:
     """
     Connect to IMAP, scan inbox for replies, match to leads.
@@ -214,7 +274,7 @@ def scan_inbox(days: int = None) -> Dict:
                     "lead_id": lead_info["lead_id"],
                     "company_name": lead_info["company_name"],
                     "subject": subject,
-                    "body_preview": body[:500] if body else "",
+                    "body_preview": _strip_quoted_reply(body)[:500] if body else "",
                     "received_at": received_at,
                     "scanned_at": datetime.now().isoformat(),
                     "read": False,

@@ -127,7 +127,7 @@ WRITING GUIDELINES:
 - INCLUDE: {', '.join(guidelines.get('include', []))}
 
 IMPORTANT RULES:
-1. Always write in first person as a representative of {company.get('name', 'Bassi Clothing')}
+1. Always write in first person PLURAL ("we", "our", "us") as the team at {company.get('name', 'Bassi Clothing')}. Say "we are at Bassi Clothing" — NEVER say "I'm [Name] from Bassi Clothing" or use any personal name introduction.
 2. Use specific numbers (MOQ, lead times, prices) — never be vague
 3. Reference the prospect's brand/company specifically
 4. Keep emails between 300-400 words — long enough to be complete, short enough to be readable
@@ -182,7 +182,7 @@ SECTION 1 — PERSONALIZED GREETING (1-2 sentences):
 Open with "Hi {contact_name}," and a sentence referencing something specific about their brand from the Company Description.
 
 SECTION 2 — INTRODUCTION + FIT (2-3 sentences):
-Briefly introduce Bassi Clothing as a garment manufacturer and explain why we are a great fit for their specific brand.
+Introduce using "we are at Bassi Clothing" (NOT "I'm [Name] from Bassi Clothing" — NEVER use personal name introductions). Explain why we are a great fit for their specific brand.
 
 SECTION 3 — COMPANY DIFFERENTIATORS (include this paragraph):
 Include a paragraph mentioning that many brands face challenges with long lead times, high MOQs, and inconsistent quality, and that we solve these with:
