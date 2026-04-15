@@ -693,6 +693,50 @@
             </div>
           </div>
         </div>
+
+        <!-- Bounced Leads Section -->
+        <div class="card mt-2" id="bounced-leads-section">
+          <div class="card-header" style="justify-content:space-between; flex-wrap:wrap; gap:12px;">
+            <div class="card-title">🚫 Bounced Leads</div>
+            <div class="btn-group">
+              <button class="btn btn-secondary" onclick="loadBouncedLeads()">🔄 Refresh</button>
+              <button class="btn btn-primary" id="btn-download-bounced" onclick="downloadBouncedCSV()" style="display:none;">
+                📥 Download CSV
+              </button>
+              <button class="btn btn-danger" id="btn-clear-bounced" onclick="confirmClearBounced()" style="display:none;">
+                🗑️ Clear Bounced
+              </button>
+            </div>
+          </div>
+          <p style="color:var(--text-secondary);font-size:0.82rem;margin-bottom:12px;padding:0 4px;">
+            Leads whose emails bounced. Download as CSV (same format as upload template), fix the email addresses, then re-upload.
+          </p>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Company</th>
+                  <th>Person</th>
+                  <th>Email (Bounced)</th>
+                  <th>Country</th>
+                  <th>Reason</th>
+                  <th>Bounced At</th>
+                </tr>
+              </thead>
+              <tbody id="bounced-table-body">
+                <tr>
+                  <td colspan="6">
+                    <div class="empty-state" style="padding:20px;">
+                      <div class="empty-icon">✅</div>
+                      <h3>No bounced leads</h3>
+                      <p>All emails were delivered successfully</p>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </section>
 
       <!-- ══════ REPLIES PAGE ══════ -->
@@ -864,7 +908,7 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=2.1"></script>
+  <script src="/static/app.js?v=2.2"></script>
 </body>
 
 </html>

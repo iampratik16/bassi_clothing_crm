@@ -330,20 +330,73 @@ def restore_from_bin(lead_id: str) -> bool:
     return True
 
 
+def _purge_lead_traces(lead_id: str, company_name: str = ""):
+    """Remove all traces of a deleted lead from generated emails and send logs."""
+    # 1. Remove from generated_emails.json
+    generated_file = BASE_DIR / "output" / "generated_emails.json"
+    if generated_file.exists():
+        try:
+            with open(generated_file, "r", encoding="utf-8") as f:
+                emails = json.load(f)
+            original_len = len(emails)
+            emails = [
+                e for e in emails
+                if e.get("lead_id") != lead_id and
+                   (not company_name or e.get("company_name", "").lower() != company_name.lower())
+            ]
+            if len(emails) != original_len:
+                with open(generated_file, "w", encoding="utf-8") as f:
+                    json.dump(emails, f, indent=2, ensure_ascii=False, default=str)
+        except Exception:
+            pass
+
+    # 2. Remove from send logs
+    send_log_dir = BASE_DIR / "output" / "send_logs"
+    if send_log_dir.exists():
+        for log_file in send_log_dir.glob("*.json"):
+            try:
+                with open(log_file, "r") as f:
+                    logs = json.load(f)
+                original_len = len(logs)
+                logs = [
+                    entry for entry in logs
+                    if not (
+                        entry.get("company", "").lower() == company_name.lower()
+                        if company_name else False
+                    )
+                ]
+                if len(logs) != original_len:
+                    with open(log_file, "w") as f:
+                        json.dump(logs, f, indent=2)
+            except Exception:
+                continue
+
+
 def permanent_delete(lead_id: str) -> bool:
-    """Permanently delete a lead from the bin."""
+    """Permanently delete a lead from the bin and purge all traces."""
     bin_leads = _load_bin()
-    remaining = [l for l in bin_leads if l["id"] != lead_id]
-    if len(remaining) == len(bin_leads):
+    target = None
+    remaining = []
+    for l in bin_leads:
+        if l["id"] == lead_id:
+            target = l
+        else:
+            remaining.append(l)
+    if not target:
         return False
     _save_bin(remaining)
+    # Cascade: remove from generated emails, send logs, etc.
+    _purge_lead_traces(lead_id, target.get("company_name", ""))
     return True
 
 
 def empty_bin() -> int:
-    """Permanently delete ALL leads in the bin. Returns count deleted."""
+    """Permanently delete ALL leads in the bin and purge all traces. Returns count deleted."""
     bin_leads = _load_bin()
     count = len(bin_leads)
+    # Cascade: purge each lead's traces
+    for lead in bin_leads:
+        _purge_lead_traces(lead.get("id", ""), lead.get("company_name", ""))
     _save_bin([])
     return count
 

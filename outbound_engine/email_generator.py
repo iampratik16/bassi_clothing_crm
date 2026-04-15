@@ -13,6 +13,35 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Optional
 
+# Generic / non-personal email prefixes — when the contact has one of these
+# as a name (or an email starting with one of these and NO real name), the
+# greeting should just be "Hi," instead of "Hi {name},".
+GENERIC_EMAIL_PREFIXES = {
+    "hello", "hi", "info", "contact", "contacts", "sales", "support",
+    "admin", "office", "team", "enquiry", "enquiries", "general",
+    "help", "mail", "marketing", "media", "press", "orders",
+    "billing", "accounts", "reception", "service", "customerservice",
+    "customer", "feedback", "careers", "jobs", "hr", "noreply",
+    "no-reply", "postmaster", "webmaster", "subscribe",
+}
+
+
+def _is_generic_contact(name: str, email: str) -> bool:
+    """Return True if the contact has no real person name."""
+    name_lower = name.strip().lower()
+    # No name at all
+    if not name_lower or name_lower in ("there", "n/a", "na", "none", "", "nan"):
+        return True
+    # Name itself is a generic word (e.g. scraped from email prefix)
+    if name_lower in GENERIC_EMAIL_PREFIXES:
+        return True
+    # Email starts with a generic prefix and name looks auto-derived from it
+    if email:
+        prefix = email.split("@")[0].lower().strip()
+        if prefix in GENERIC_EMAIL_PREFIXES:
+            return True
+    return False
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 CONFIG_FILE = BASE_DIR / "bassi_config.yaml"
 CASE_STUDIES_FILE = BASE_DIR / "data" / "case_studies.json"
@@ -140,7 +169,7 @@ IMPORTANT RULES:
 
 
 EMAIL_TYPE_PROMPTS = {
-    "cold_outreach": """Write a deeply personalized cold outreach email to {contact_name} at {company_name}.
+    "cold_outreach": """Write a deeply personalized cold outreach email to {company_name}.
 
 === TARGET COMPANY PROFILE ===
 Company: {company_name}
@@ -179,7 +208,8 @@ CRITICAL PERSONALIZATION RULES:
 MANDATORY EMAIL STRUCTURE (follow this order EXACTLY):
 
 SECTION 1 — PERSONALIZED GREETING (1-2 sentences):
-Open with "Hi {contact_name}," and a sentence referencing something specific about their brand from the Company Description.
+{greeting_instruction}
+Follow with a sentence referencing something specific about their brand from the Company Description.
 
 SECTION 2 — INTRODUCTION + FIT (2-3 sentences):
 Introduce using "we are at Bassi Clothing" (NOT "I'm [Name] from Bassi Clothing" — NEVER use personal name introductions). Explain why we are a great fit for their specific brand.
@@ -211,8 +241,9 @@ CRITICAL FORMATTING RULES:
 Return a JSON object with:
 {{"subject": "email subject line", "body": "email body text (plain text, no HTML)"}}""",
 
-    "follow_up_case_study": """Write a follow-up email to {contact_name} at {company_name}.
+    "follow_up_case_study": """Write a follow-up email to {company_name}.
 We sent them a cold email a few days ago and haven't heard back.
+{greeting_instruction}
 Company info: {about}
 Country: {country}
 
@@ -225,8 +256,9 @@ This email should:
 Return a JSON object with:
 {{"subject": "email subject line", "body": "email body text (plain text, no HTML)"}}""",
 
-    "follow_up_samples": """Write a 3rd touchpoint email to {contact_name} at {company_name}.
+    "follow_up_samples": """Write a 3rd touchpoint email to {company_name}.
 We've emailed twice with no response.
+{greeting_instruction}
 Company info: {about}
 Country: {country}
 
@@ -240,8 +272,9 @@ This email should:
 Return a JSON object with:
 {{"subject": "email subject line", "body": "email body text (plain text, no HTML)"}}""",
 
-    "breakup": """Write a "breakup" email to {contact_name} at {company_name}.
+    "breakup": """Write a \"breakup\" email to {company_name}.
 This is our 4th and final email — they haven't responded to 3 previous emails.
+{greeting_instruction}
 Company info: {about}
 Country: {country}
 
@@ -273,8 +306,14 @@ def generate_email(
         contact = lead["contacts"][0]
 
     # Use only first name for personalization (e.g., "Emma Lindström" → "Emma")
-    full_name = contact.get("name", "there") or "there"
-    first_name = full_name.split()[0] if full_name and full_name != "there" else "there"
+    full_name = contact.get("name", "") or ""
+    contact_email = contact.get("email", "") or ""
+    first_name = full_name.split()[0] if full_name.strip() else ""
+
+    # If the contact is generic (info@, sales@, hello@, etc.) use empty name
+    # so greetings become just "Hi," instead of "Hi Sales," or "Hi there,"
+    if _is_generic_contact(first_name, contact_email):
+        first_name = ""
 
     # Build product recommendations based on the company's profile
     products = _load_products()
@@ -294,9 +333,16 @@ def generate_email(
         )
     product_recommendations = "\n".join(product_recs) if product_recs else "Full catalog available on request."
 
+    # Build the greeting instruction for the AI prompt
+    if first_name:
+        greeting_instruction = f'Open with "Hi {first_name},"'
+    else:
+        greeting_instruction = 'Open with just "Hi," (do NOT add any name, do NOT say "Hi there" — just "Hi,")'
+
     context = {
         "company_name": lead.get("company_name", "your company"),
         "contact_name": first_name,
+        "greeting_instruction": greeting_instruction,
         "about": about_text[:800] if about_text else "No company details available — write a general but professional email.",
         "country": lead.get("country", "Europe"),
         "industry": lead.get("industry", "Fashion"),
@@ -488,7 +534,7 @@ def _generate_from_template(config: Dict, context: Dict, email_type: str) -> Dic
     templates = {
         "cold_outreach": {
             "subject": f"{context['company_name']} × {company.get('name', 'Bassi Clothing')} — Reliable Garment Manufacturing for {context['country']}",
-            "body": f"""Hi {context['contact_name']},
+            "body": f"""Hi{(' ' + context['contact_name']) if context['contact_name'] else ''},
 
 I came across {context['company_name']} and was impressed by your brand's approach to fashion in the {context['country']} market.
 
@@ -508,7 +554,7 @@ Would a quick 15-minute call this week work to discuss your sourcing needs? I ca
         },
         "follow_up_case_study": {
             "subject": f"Quick case study — how a {context['country']} brand saved 30% on manufacturing",
-            "body": f"""Hi {context['contact_name']},
+            "body": f"""Hi{(' ' + context['contact_name']) if context['contact_name'] else ''},
 
 Following up on my previous note. I wanted to share a quick result:
 
@@ -520,7 +566,7 @@ Would love to discuss how we could achieve similar results for {context['company
         },
         "follow_up_samples": {
             "subject": f"Free samples for {context['company_name']} — no strings attached",
-            "body": f"""Hi {context['contact_name']},
+            "body": f"""Hi{(' ' + context['contact_name']) if context['contact_name'] else ''},
 
 I know you're busy, so I'll keep this brief.
 
@@ -531,8 +577,8 @@ We can have samples at your door within 7 business days.
 Interested? Just reply with your shipping address and which categories interest you (tees, hoodies, denim, activewear, or sustainable).""",
         },
         "breakup": {
-            "subject": f"Should I close your file, {context['contact_name']}?",
-            "body": f"""Hi {context['contact_name']},
+            "subject": f"Should I close your file{(', ' + context['contact_name']) if context['contact_name'] else ''}?",
+            "body": f"""Hi{(' ' + context['contact_name']) if context['contact_name'] else ''},
 
 I've reached out a few times and haven't heard back, which I completely understand — timing is everything in this business.
 

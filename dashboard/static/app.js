@@ -561,9 +561,14 @@ async function generateAllEmails() {
   document.getElementById('bulk-progress-bar').style.width = '30%';
 
   try {
-    // Collect selected lead IDs (if any emails are already generated and selected)
-    const selectedLeadIds = [];
-    if (generatedEmails.length > 0 && selectedBulkEmails.size > 0 && selectedBulkEmails.size < generatedEmails.length) {
+    // Collect selected lead IDs
+    let selectedLeadIds = [];
+
+    // If leads were transferred from the Leads page, use those IDs
+    if (window.pendingBulkLeadIds && window.pendingBulkLeadIds.length > 0) {
+      selectedLeadIds = [...window.pendingBulkLeadIds];
+      window.pendingBulkLeadIds = null; // Clear after use
+    } else if (generatedEmails.length > 0 && selectedBulkEmails.size > 0 && selectedBulkEmails.size < generatedEmails.length) {
       // Only pass lead_ids when a subset is selected
       selectedBulkEmails.forEach(i => {
         if (generatedEmails[i] && generatedEmails[i].lead_id) {
@@ -1061,72 +1066,13 @@ async function sendSelectedLeadsToBulk() {
     return;
   }
 
-  const leadIds = [...selectedLeadIds];
-  const emailType = 'cold_outreach';
-  const generationMethod = 'ai';
+  // Store the selected lead IDs so the Bulk Email page can use them
+  window.pendingBulkLeadIds = [...selectedLeadIds];
 
-  showToast(`⏳ Generating emails for ${leadIds.length} selected lead(s)...`, 'info');
+  showToast(`✅ ${selectedLeadIds.size} lead(s) queued for Bulk Email. Choose your generation method on the next page.`, 'success');
 
-  const btn = document.getElementById('btn-send-to-bulk');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="loading-spinner"></span> Generating...';
-
-  try {
-    const res = await fetch(`${API}/api/emails/generate-batch`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lead_ids: leadIds, email_type: emailType, generation_method: generationMethod }),
-    });
-    const data = await res.json();
-
-    if (data.error) {
-      showToast(`❌ ${data.error}`, 'error');
-      btn.disabled = false;
-      btn.textContent = `✉️ Send ${leadIds.length} to Bulk Email`;
-      return;
-    }
-
-    const newEmails = data.emails || [];
-
-    if (newEmails.length === 0) {
-      showToast('⚠️ No emails could be generated for the selected leads. Make sure they have email addresses.', 'error');
-      btn.disabled = false;
-      btn.textContent = `✉️ Send ${leadIds.length} to Bulk Email`;
-      return;
-    }
-
-    // Merge with existing generated emails (avoid duplicates by lead_id)
-    const existingIds = new Set(generatedEmails.map(e => e.lead_id));
-    let addedCount = 0;
-    for (const email of newEmails) {
-      if (!existingIds.has(email.lead_id)) {
-        generatedEmails.push(email);
-        addedCount++;
-      }
-    }
-
-    // Save merged list
-    try {
-      await fetch(`${API}/api/emails/save-generated`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emails: generatedEmails }),
-      });
-    } catch (saveErr) {
-      // Non-critical, emails are still in memory
-      console.error('Save generated emails error:', saveErr);
-    }
-
-    selectedBulkEmails = new Set(generatedEmails.map((_, i) => i));
-    showToast(`✅ Added ${addedCount} email(s) to Bulk Email. Navigating...`, 'success');
-
-    setTimeout(() => showPage('bulk-email'), 500);
-  } catch (e) {
-    showToast('❌ Failed to generate emails: ' + e.message, 'error');
-  }
-
-  btn.disabled = false;
-  btn.textContent = `✉️ Send ${leadIds.length} to Bulk Email`;
+  // Navigate to Bulk Email page — user will choose AI/Template and click Generate there
+  setTimeout(() => showPage('bulk-email'), 300);
 }
 
 async function importLeads() {
@@ -1547,6 +1493,8 @@ async function loadCampaigns() {
         <h3>No campaigns yet</h3>
         <p>Create your first campaign to start outreach</p>
       </div>`;
+      // Still load bounced leads even when no campaigns exist
+      loadBouncedLeads();
       return;
     }
 
@@ -1570,6 +1518,8 @@ async function loadCampaigns() {
           </tbody>
         </table>
       </div>`;
+    // Also load bounced leads table
+    loadBouncedLeads();
   } catch (e) {
     console.error('Campaigns error:', e);
   }
@@ -1643,6 +1593,104 @@ async function createCampaign() {
     loadCampaigns();
   } catch (e) {
     showToast('❌ Failed to create campaign', 'error');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  BOUNCED LEADS
+// ═══════════════════════════════════════════════════════════════
+
+async function loadBouncedLeads() {
+  try {
+    const res = await fetch(`${API}/api/bounced`);
+    const data = await res.json();
+    const bounced = data.bounced || [];
+
+    const tbody = document.getElementById('bounced-table-body');
+    const btnDownload = document.getElementById('btn-download-bounced');
+    const btnClear = document.getElementById('btn-clear-bounced');
+
+    if (!bounced.length) {
+      tbody.innerHTML = `<tr><td colspan="6">
+        <div class="empty-state" style="padding:20px;">
+          <div class="empty-icon">✅</div>
+          <h3>No bounced leads</h3>
+          <p>All emails were delivered successfully</p>
+        </div>
+      </td></tr>`;
+      if (btnDownload) btnDownload.style.display = 'none';
+      if (btnClear) btnClear.style.display = 'none';
+      return;
+    }
+
+    // Show action buttons
+    if (btnDownload) btnDownload.style.display = '';
+    if (btnClear) btnClear.style.display = '';
+
+    tbody.innerHTML = bounced.map(b => {
+      const dt = b.Bounced_At ? new Date(b.Bounced_At) : null;
+      const dateStr = dt ? dt.toLocaleDateString() + ' ' + dt.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '-';
+      // Truncate long reason text
+      const reason = (b.Bounce_Reason || '-').substring(0, 80);
+      return `
+        <tr>
+          <td style="font-weight:600;color:var(--text-heading);">${escHtml(b['Company Name'] || '-')}</td>
+          <td>${escHtml(b.Person || '-')}</td>
+          <td style="font-size:0.82rem;color:var(--accent-rose);">${escHtml(b.Email || '-')}</td>
+          <td>${escHtml(b.Country || '-')}</td>
+          <td style="font-size:0.78rem;color:var(--text-muted);max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escHtml(b.Bounce_Reason || '')}">${escHtml(reason)}</td>
+          <td style="font-size:0.82rem;color:var(--text-muted);">${dateStr}</td>
+        </tr>
+      `;
+    }).join('');
+  } catch (e) {
+    console.error('Bounced leads error:', e);
+  }
+}
+
+function downloadBouncedCSV() {
+  // Trigger download by navigating to the CSV endpoint
+  window.location.href = `${API}/api/bounced/download-csv`;
+  showToast('📥 Downloading bounced leads CSV...', 'success');
+}
+
+function confirmClearBounced() {
+  const modal = document.getElementById('modal-content');
+  modal.innerHTML = `
+    <div class="modal-header">
+      <h3>🗑️ Clear Bounced Leads</h3>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <p style="color:var(--text-secondary);margin-bottom:16px;">
+      This will remove all bounced entries from your send logs. The leads themselves will remain in your CRM.
+    </p>
+    <p style="color:var(--accent-amber);font-size:0.85rem;margin-bottom:20px;">
+      ⚠️ Make sure you have already downloaded the CSV before clearing.
+    </p>
+    <div class="btn-group">
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-danger" onclick="clearBouncedLeads()">🗑️ Yes, Clear All Bounced</button>
+    </div>
+  `;
+  document.getElementById('modal-overlay').classList.add('active');
+}
+
+async function clearBouncedLeads() {
+  try {
+    const res = await fetch(`${API}/api/bounced/clear`, { method: 'DELETE' });
+    const data = await res.json();
+    closeModal();
+
+    if (data.success) {
+      showToast(`✅ Cleared ${data.removed} bounced entries`, 'success');
+      loadBouncedLeads();
+      // Refresh campaign stats too since bounce count changed
+      syncCampaignStats(true);
+    } else {
+      showToast('❌ Failed to clear bounced leads', 'error');
+    }
+  } catch (e) {
+    showToast('❌ Failed to clear: ' + e.message, 'error');
   }
 }
 

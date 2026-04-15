@@ -793,6 +793,138 @@ async def api_score_lead(lead_id: str):
 
 
 # ═══════════════════════════════════════════════════════════════
+#  BOUNCED LEADS API
+# ═══════════════════════════════════════════════════════════════
+
+def _collect_bounced_leads() -> list:
+    """Scan all send logs and return deduplicated bounced lead records."""
+    log_dir = BASE_DIR / "output" / "send_logs"
+    bounced_map: dict = {}  # keyed by company name (lower) to deduplicate
+
+    if not log_dir.exists():
+        return []
+
+    for log_file in sorted(log_dir.glob("*.json")):
+        try:
+            with open(log_file, "r") as f:
+                day_logs = json.load(f)
+        except Exception:
+            continue
+
+        for entry in day_logs:
+            if entry.get("status") != "bounced":
+                continue
+            company = entry.get("company", "").strip()
+            if not company:
+                continue
+
+            key = company.lower()
+            if key in bounced_map:
+                continue  # already captured this company
+
+            # Try to enrich from CRM leads
+            lead_data = {}
+            try:
+                from outbound_engine.lead_manager import get_all_leads
+                all_leads = get_all_leads()
+                for ld in all_leads:
+                    if ld.get("company_name", "").lower() == key:
+                        lead_data = ld
+                        break
+            except Exception:
+                pass
+
+            contact = {}
+            if lead_data.get("contacts"):
+                contact = lead_data["contacts"][0]
+
+            bounced_map[key] = {
+                "Company Name": company,
+                "Person": contact.get("name", entry.get("to_name", "")),
+                "Title": contact.get("title", ""),
+                "Email": entry.get("to_email", ""),
+                "Website": lead_data.get("website", ""),
+                "About": lead_data.get("about", ""),
+                "Country": lead_data.get("country", ""),
+                "Industry": lead_data.get("industry", ""),
+                "Employees": lead_data.get("employees", ""),
+                "Revenue": lead_data.get("revenue", ""),
+                "Founded": lead_data.get("founded", ""),
+                "Company_Phone": lead_data.get("company_phone", ""),
+                "Company_LinkedIn": lead_data.get("company_linkedin", ""),
+                "Bounce_Reason": entry.get("error", ""),
+                "Bounced_At": entry.get("timestamp", ""),
+            }
+
+    return list(bounced_map.values())
+
+
+@app.get("/api/bounced")
+async def api_get_bounced():
+    """Get all bounced lead entries (deduplicated by company)."""
+    bounced = await asyncio.to_thread(_collect_bounced_leads)
+    return {"bounced": bounced, "count": len(bounced)}
+
+
+@app.get("/api/bounced/download-csv")
+async def api_download_bounced_csv():
+    """Download bounced leads as a CSV file matching the upload template format."""
+    bounced = _collect_bounced_leads()
+
+    if not bounced:
+        return JSONResponse(status_code=404, content={"error": "No bounced leads to export."})
+
+    # CSV columns match Email_Upload_Template.xlsx exactly
+    columns = [
+        "Company Name", "Person", "Title", "Email", "Website",
+        "About", "Country", "Industry", "Employees", "Revenue",
+        "Founded", "Company_Phone", "Company_LinkedIn",
+    ]
+
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=columns, extrasaction="ignore")
+    writer.writeheader()
+    for row in bounced:
+        writer.writerow(row)
+
+    csv_content = output.getvalue()
+    today = datetime.now().strftime("%Y-%m-%d")
+    filename = f"Bounced_Leads_{today}.csv"
+
+    return Response(
+        content=csv_content,
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@app.delete("/api/bounced/clear")
+async def api_clear_bounced():
+    """Remove all bounced entries from send logs (keeps sent/dry_run/error entries intact)."""
+    log_dir = BASE_DIR / "output" / "send_logs"
+    removed_count = 0
+
+    if not log_dir.exists():
+        return {"success": True, "removed": 0}
+
+    for log_file in sorted(log_dir.glob("*.json")):
+        try:
+            with open(log_file, "r") as f:
+                logs = json.load(f)
+
+            original_len = len(logs)
+            logs = [entry for entry in logs if entry.get("status") != "bounced"]
+            removed_count += original_len - len(logs)
+
+            with open(log_file, "w") as f:
+                json.dump(logs, f, indent=2)
+        except Exception:
+            continue
+
+    return {"success": True, "removed": removed_count, "message": f"Cleared {removed_count} bounced entries"}
+
+
+# ═══════════════════════════════════════════════════════════════
 #  BIN / TRASH API
 # ═══════════════════════════════════════════════════════════════
 
