@@ -32,6 +32,10 @@ def _is_generic_contact(name: str, email: str) -> bool:
     # No name at all or name is a placeholder
     if not name_lower or name_lower in ("there", "n/a", "na", "none", "", "nan", "undefined", "null", "unknown"):
         return True
+    # Multi-word "no data" placeholders scraped from upstream sources
+    # e.g. "Not found", "Not available", "Not provided", "No name", "No data"
+    if name_lower.startswith(("not ", "no name", "no data", "no contact")):
+        return True
     # Name itself is a generic word (e.g. scraped from email prefix)
     if name_lower in GENERIC_EMAIL_PREFIXES:
         return True
@@ -308,12 +312,15 @@ def generate_email(
     # Use only first name for personalization (e.g., "Emma Lindström" → "Emma")
     full_name = contact.get("name", "") or ""
     contact_email = contact.get("email", "") or ""
-    first_name = full_name.split()[0] if full_name.strip() else ""
 
-    # If the contact is generic (info@, sales@, hello@, etc.) use empty name
-    # so greetings become just "Hi," instead of "Hi Sales," or "Hi there,"
-    if _is_generic_contact(first_name, contact_email):
+    # Check the FULL name first so multi-word placeholders ("Not found",
+    # "Not available", "No name") don't leak through as "Not".
+    if _is_generic_contact(full_name, contact_email):
         first_name = ""
+    else:
+        first_name = full_name.split()[0] if full_name.strip() else ""
+        if _is_generic_contact(first_name, contact_email):
+            first_name = ""
 
     # Build product recommendations based on the company's profile
     products = _load_products()
