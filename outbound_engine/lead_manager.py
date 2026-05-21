@@ -62,10 +62,10 @@ def import_leads_file(file_path: str, selected_indices: Optional[List[int]] = No
     try:
         import pandas as pd
         if file_path.suffix.lower() in [".xlsx", ".xls"]:
-            df = pd.read_excel(file_path, engine="openpyxl")
+            df = pd.read_excel(file_path, engine="openpyxl", dtype=object)
         else:
-            df = pd.read_csv(file_path)
-        df.fillna("", inplace=True)
+            df = pd.read_csv(file_path, dtype=object)
+        df = df.astype(object).where(df.notna(), "")
         rows = df.to_dict("records")
     except Exception as e:
         return {"error": f"Failed to parse file: {str(e)}"}
