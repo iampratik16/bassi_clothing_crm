@@ -6,18 +6,21 @@ Now with Apollo search, email upload, Gemini-powered bulk email generation, and 
 """
 
 import sys
+import os
 import json
 import csv
 import io
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Query, UploadFile, File, Form
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, Response
 from dotenv import load_dotenv
 import asyncio
+import httpx
 
 # Add parent to path
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -25,10 +28,38 @@ sys.path.insert(0, str(BASE_DIR))
 
 load_dotenv(BASE_DIR / ".env", override=True)
 
+KEEP_ALIVE_URL = os.environ.get(
+    "KEEP_ALIVE_URL",
+    "https://bassi-crm.onrender.com/api/health",
+)
+KEEP_ALIVE_INTERVAL = 14 * 60
+
+
+async def _keep_alive_pinger():
+    async with httpx.AsyncClient(timeout=30) as client:
+        while True:
+            await asyncio.sleep(KEEP_ALIVE_INTERVAL)
+            try:
+                resp = await client.get(KEEP_ALIVE_URL)
+                print(f"[keep-alive] pinged {KEEP_ALIVE_URL} -> {resp.status_code}")
+            except Exception as e:
+                print(f"[keep-alive] ping failed: {e}")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    task = asyncio.create_task(_keep_alive_pinger())
+    print("[startup] Keep-alive pinger started")
+    yield
+    task.cancel()
+    print("[shutdown] Keep-alive pinger cancelled")
+
+
 app = FastAPI(
     title="Bassi Clothing — AI Marketing Dashboard",
     description="B2B Outbound Engine, Sales Pipeline, and Content Ops",
     version="2.0.0",
+    lifespan=lifespan,
 )
 
 # Serve static files
