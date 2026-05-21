@@ -13,9 +13,31 @@
     "stats": {
       "total_leads": 0,
       "emails_generated": 0,
-      "emails_sent": 30,
+      "emails_sent": 150,
       "emails_opened": 0,
-      "replies": 0,
+      "replies": 10,
+      "bounces": 0,
+      "opt_outs": 0,
+      "meetings_booked": 0
+    }
+  },
+  {
+    "id": "campaign_20260504_130743",
+    "name": "Second follow up",
+    "email_type": "follow_up_samples",
+    "description": "",
+    "target_countries": [],
+    "target_industries": [],
+    "status": "draft",
+    "created_at": "2026-05-04T13:07:43.877350",
+    "started_at": null,
+    "completed_at": null,
+    "stats": {
+      "total_leads": 0,
+      "emails_generated": 0,
+      "emails_sent": 311,
+      "emails_opened": 2,
+      "replies": 14,
       "bounces": 0,
       "opt_outs": 0,
       "meetings_booked": 0

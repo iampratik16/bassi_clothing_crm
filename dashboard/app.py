@@ -524,6 +524,11 @@ async def api_send_all_emails(request: Request):
         )
 
         status = result.get("status", "error")
+
+        if status in ("sent", "dry_run") and email_data.get("lead_id"):
+            from outbound_engine.lead_manager import update_lead_stage
+            update_lead_stage(email_data["lead_id"], "contacted")
+
         results[status] = results.get(status, 0) + 1
         results["details"].append({
             "company": email_data.get("company_name", "Unknown"),
@@ -566,6 +571,10 @@ async def api_send_single_email(request: Request):
             "email_type": body.get("email_type", "cold_outreach"),
         },
     )
+
+    if result.get("status") in ("sent", "dry_run") and lead_id:
+        from outbound_engine.lead_manager import update_lead_stage
+        update_lead_stage(lead_id, "contacted")
 
     return result
 

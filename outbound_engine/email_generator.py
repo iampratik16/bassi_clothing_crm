@@ -27,15 +27,15 @@ GENERIC_EMAIL_PREFIXES = {
 
 
 def _is_generic_contact(name: str, email: str) -> bool:
-    """Return True if the contact has no real person name."""
+    """Return True if the contact has no real person name or uses a generic email."""
     name_lower = name.strip().lower()
-    # No name at all
-    if not name_lower or name_lower in ("there", "n/a", "na", "none", "", "nan"):
+    # No name at all or name is a placeholder
+    if not name_lower or name_lower in ("there", "n/a", "na", "none", "", "nan", "undefined", "null", "unknown"):
         return True
     # Name itself is a generic word (e.g. scraped from email prefix)
     if name_lower in GENERIC_EMAIL_PREFIXES:
         return True
-    # Email starts with a generic prefix and name looks auto-derived from it
+    # Email starts with a generic prefix
     if email:
         prefix = email.split("@")[0].lower().strip()
         if prefix in GENERIC_EMAIL_PREFIXES:
@@ -335,9 +335,9 @@ def generate_email(
 
     # Build the greeting instruction for the AI prompt
     if first_name:
-        greeting_instruction = f'Open with "Hi {first_name},"'
+        greeting_instruction = f'Open with exactly "Hi {first_name},"'
     else:
-        greeting_instruction = 'Open with just "Hi," (do NOT add any name, do NOT say "Hi there" — just "Hi,")'
+        greeting_instruction = 'Open with exactly "Hi" or "Hi," (do NOT add any name, do NOT say "Hi there", do NOT include a generic title like Sales or Info — just "Hi").'
 
     context = {
         "company_name": lead.get("company_name", "your company"),

@@ -246,8 +246,7 @@ def record_campaign(lead_id: str, campaign_id: str, email_type: str) -> bool:
                 "email_type": email_type,
                 "sent_at": datetime.now().isoformat(),
             })
-            if lead["stage"] == "new":
-                lead["stage"] = "contacted"
+            lead["stage"] = "contacted"
             lead["updated_at"] = datetime.now().isoformat()
             _save_leads(leads)
             return True

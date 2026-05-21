@@ -1,1 +1,14 @@
-[]
+[
+  {
+    "send_id": "cbdf4f2b-55d8-49e7-b397-ffaff1616380",
+    "opened_at": "2026-05-13T13:12:42.397828",
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+    "ip_address": "127.0.0.1"
+  },
+  {
+    "send_id": "456a2df8-9914-4208-b3e7-3cdbe9d25845",
+    "opened_at": "2026-05-13T15:13:32.312269",
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+    "ip_address": "127.0.0.1"
+  }
+]
